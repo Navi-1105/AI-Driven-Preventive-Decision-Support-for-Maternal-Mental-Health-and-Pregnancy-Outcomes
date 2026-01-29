@@ -1,0 +1,51 @@
+Column Name,Short Column Name,Description,Data Type,Units,Example Value,Remarks
+Your age,Age,Age range of the respondent,Integer,Years,25,Respondent's age in years
+Current residence,Residence,Current place of residence,String,Category,City,Respondent's place of residence
+Level of education,Education Level,Highest level of education attained,String,Category,University,Highest level of education attained
+Marital status,Marital status,Current marital status,String,Category,Married,Current marital status
+Your occupation before latest pregnancy,Occupation before latest pregnancy,Job before the latest pregnancy,String,Text,Teacher,Respondent’s job before latest pregnancy
+Monthly income before latest pregnancy,Monthly income before latest pregnancy,Income before latest pregnancy,String,BDT,"10,000 to 20,000",Income range before latest pregnancy in BDT
+Your occupation after your latest childbirth,Occupation After Your Latest Childbirth,Current job after childbirth,String,Text,Housewife,Respondent’s job after childbirth
+Current monthly income,Current monthly income,Current monthly income,String,BDT,None,Respondent’s current income in BDT
+Husband's level of education,Husband's education level,Highest education level of the husband,String,Category,College,Highest education level of husband
+Husband’s monthly income,Husband’s monthly income,Husband’s monthly income,String,BDT,"20,000 to 30,000",Monthly income of husband in BDT
+Do you have any kind of addiction?,Addiction,Any form of addiction before/after pregnancy,List of Strings,Category (Multiple),Smoking,"Respondent’s addiction(s), multiple choices allowed"
+Number of total children,Total children,Total number of children,Integer,Count,2,Total number of children
+Any disease before pregnancy?,Disease before pregnancy,Any pre-existing diseases before pregnancy,List of Strings,Category (Multiple),High blood pressure,"Pre-existing medical conditions, multiple choices allowed"
+History of pregnancy loss,History of pregnancy loss,History of miscarriage/stillbirth,String,Category,Miscarriage,Any history of pregnancy loss
+Family type,Family type,Type of family setup,String,Category,Joint,Type of family structure
+Number of household members,Number of household members,Total number of people in the household,Integer,Count,5,Total members in the household
+Relationship with the in-laws,Relationship with the in-laws,Quality of relationship with in-laws,String,Category,Neutral,Respondent’s relationship with in-laws
+How is your relationship with your husband?,Relationship with husband,Quality of relationship with husband,String,Category,Friendly,Relationship status with husband
+Relationship/Bonding with the newborn,Relationship with the newborn,Emotional bonding with the newborn,String,Category,Very good,Mother’s bonding with newborn
+How is the relationship between your husband and your child?,Relationship between father and newborn,Quality of bonding between father and child,String,Category,Friendly,Bonding between husband and child
+What is your feeling about motherhood?,Feeling about motherhood,Overall emotional experience of motherhood,String,Category,Happy,Respondent’s feelings about motherhood
+What kind of support did you receive before and after childbirth?,Recieved Support,Support received pre/post-birth,List of Strings,Category (Multiple),Satisfactory from husband,"Type of support received, multiple choices allowed"
+Do you wish/feel that you should be offered more help?,Need for Support,Desire for additional support,List of Strings,Category (Multiple),Yes (from husband),"Need for additional support, multiple choices allowed"
+Did you have any major changes or losses for pregnancy?,Major changes or losses during pregnancy,Any significant life changes due to pregnancy,List of Strings,Category (Multiple),Lost job,"Major life changes due to pregnancy, multiple choices allowed"
+Has anyone in your family/husband/in-laws ever treated you like this?,Abuse,Experience of abuse or violence,List of Strings,Category (Multiple),Insulting,"Experience of mistreatment, multiple choices allowed"
+Trust and share feelings with close friends?,Trust and share feelings,Ability to confide in close friends,String,Category,Yes,Whether the respondent shares feelings with friends
+Number of the latest pregnancy,Number of the latest pregnancy,Number of pregnancies (including miscarriages),Integer,Count,2,Count of latest pregnancy
+Pregnancy length,Pregnancy length,Gestation period in weeks,Integer,Weeks,39,Length of pregnancy in weeks
+Was this latest pregnancy planned?,Pregnancy plan,Whether the pregnancy was planned,String,Category,Yes,Whether pregnancy was planned
+Had regular checkups?,Regular checkups,Attended regular prenatal checkups,String,Category,Yes,Whether respondent had regular checkups
+Fear of pregnancy?,Fear of pregnancy,Experienced fear related to pregnancy,String,Category,No,Whether respondent had pregnancy-related fears
+Diseases during pregnancy?,Diseases during pregnancy,Any medical conditions during pregnancy,List of Strings,Category (Multiple),Gestational diabetes,"Any diseases during pregnancy, multiple choices allowed"
+Age of newborn,Age of newborn,Current age of the newborn,String,Months,Six months to one year,Age of newborn in months
+"Age of older children, if any",Age of immediate older children,age_prev_baby,List of Integers,Years,"5, 8",Ages of older children if applicable
+Mode of delivery,Mode of delivery,Delivery method,String,Category,Cesarean section,Type of delivery
+Gender of newborn,Gender of newborn,Sex of the newborn,String,Category,Boy,Gender of the newborn
+Any birth complications?,Birth compliancy,Complications experienced during delivery,String,Category,No,Whether there were birth complications
+Do you breastfeed?,Breastfeed,Current breastfeeding status,String,Category,Yes,Whether respondent breastfeeds the newborn
+Any illness of the infant?,Newborn illness,Any health issues with the newborn,String,Category,No,Whether the infant had any illness
+Are you constantly worried about the newborn's health and activities?,Worry about newborn,Level of concern over the baby's health,String,Category,Yes,Level of worry about newborn’s health
+Can you relax/sleep when the newborn is monitored by someone else?,Relax/sleep when newborn is tended ,Ability to relax when others monitor the baby,String,Category,Yes,Whether respondent can rest when someone else monitors the baby
+Can you relax/sleep when the newborn is asleep?,Relax/sleep when the newborn is asleep,Ability to rest when the baby is sleeping,String,Category,Yes,Whether respondent can rest while newborn sleeps
+"Have you been feeling angry, irritated, and difficult to calm down after childbirth?",Angry after latest child birth,Postpartum emotional instability,String,Category,No,Emotional state post-childbirth
+How do you feel to perform regular activities like before pregnancy?,Feeling for regular activities,Comfort level in resuming daily activities,List of Strings,Category (Multiple),Tired,How respondent feels about resuming regular activities
+Depression before pregnancy (PHQ2),Depression before pregnancy (PHQ2),"Depression before pregnancy, measured by PHQ2 scale",String,Category,Negative,Depression status before pregnancy using Patient Health Questionnaire-2
+Depression during pregnancy (PHQ2),Depression during pregnancy (PHQ2),"Depression during pregnancy, measured by PHQ2 scale",String,Category,Negative,Depression status during pregnancy using Patient Health Questionnaire-2
+PHQ9 Score,PHQ9 Score,"Postpartum depression, measured by PHQ9 scale",Integer,Count,10,Postpartum depression severity score using Patient Health Questionnaire-9
+PHQ9 Result,PHQ9 Result,"Postpartum depression, measured and labelled by PHQ9 scale ",String,Category,Mild,Postpartum depression severity level using Patient Health Questionnaire-9
+EPDS Score,EPDS Score,"Postpartum depression, measured by EPDS scale",Integer,Count,3,Postpartum depression severity score using Edinburgh Postnatal Depression Scale
+EPDS Result,EPDS Result,"Postpartum depression, measured and labelled by EPDS scale ",String,Category,High,Postpartum depression severity level using Edinburgh Postnatal Depression Scale
