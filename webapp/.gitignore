@@ -1,0 +1,7 @@
+backend/venv/
+frontend/node_modules/
+frontend/dist/
+backend/model/*.joblib
+backend/model/metrics/
+__pycache__/
+*.pyc
