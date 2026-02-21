@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import "./styles.css";
+import UnifiedWorkspace from "./components/UnifiedWorkspace";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
 const STORAGE_KEYS = {
@@ -23,6 +24,7 @@ const initialInputs = {
 
 const NAV_ITEMS = [
   { key: "overview", label: "Overview" },
+  { key: "workspace", label: "Unified Workspace" },
   { key: "chat", label: "Chat Triage" },
   { key: "clinical", label: "Clinical Review", roles: ["clinician", "admin"] },
   { key: "risk", label: "Risk & Timeline" },
@@ -37,7 +39,10 @@ export default function App() {
   });
   const [token, setToken] = useState(() => getStoredValue(STORAGE_KEYS.token, ""));
   const [currentRole, setCurrentRole] = useState(() => getStoredValue(STORAGE_KEYS.role, ""));
-  const [activePage, setActivePage] = useState("overview");
+  const [activePage, setActivePage] = useState(() => {
+    const role = getStoredValue(STORAGE_KEYS.role, "");
+    return role === "clinician" || role === "admin" ? "workspace" : "overview";
+  });
 
   const [apiStatus, setApiStatus] = useState("");
   const [backendHealth, setBackendHealth] = useState({ status: "checking", message: "Checking backend..." });
@@ -252,7 +257,7 @@ export default function App() {
       setToken(data.access_token);
       setCurrentRole(data.role);
       setAuthStatus(`Registered as ${data.role}`);
-      setActivePage("overview");
+      setActivePage(data.role === "clinician" || data.role === "admin" ? "workspace" : "overview");
     } catch (error) {
       setAuthStatus(error.message || "Register failed");
     } finally {
@@ -272,7 +277,7 @@ export default function App() {
       setToken(data.access_token);
       setCurrentRole(data.role);
       setAuthStatus(`Logged in as ${data.role}`);
-      setActivePage("overview");
+      setActivePage(data.role === "clinician" || data.role === "admin" ? "workspace" : "overview");
     } catch (error) {
       setAuthStatus(error.message || "Login failed");
     } finally {
@@ -703,6 +708,39 @@ export default function App() {
       </nav>
 
       {apiStatus ? <p className="muted">API error: {apiStatus}</p> : null}
+
+      {activePage === "workspace" ? (
+        <UnifiedWorkspace
+          inputs={inputs}
+          updateInput={updateInput}
+          patientIdentity={patientIdentity}
+          setPatientIdentity={setPatientIdentity}
+          risk={risk}
+          timeline={timeline}
+          handleRisk={handleRisk}
+          handleTimeline={handleTimeline}
+          chatMessage={chatMessage}
+          setChatMessage={setChatMessage}
+          chatHistory={chatHistory}
+          chatItemState={chatItemState}
+          chatResult={chatResult}
+          chatLoading={chatLoading}
+          chatLocked={chatLocked}
+          handleChatAssess={handleChatAssess}
+          handleEscalate={handleEscalate}
+          handleTranscriptUpload={handleTranscriptUpload}
+          toggleChatCarePlanItem={toggleChatCarePlanItem}
+          setChatMessageReview={setChatMessageReview}
+          onOpenSource={openSource}
+          xai={xai}
+          xaiStatus={xaiStatus}
+          carePlanItems={carePlanItems}
+          setCarePlanItems={setCarePlanItems}
+          toggleCarePlanItem={toggleCarePlanItem}
+          ragResponse={ragResponse}
+          chatResultSources={chatResult?.sources}
+        />
+      ) : null}
 
       {activePage === "overview" ? (
         <section className="grid">

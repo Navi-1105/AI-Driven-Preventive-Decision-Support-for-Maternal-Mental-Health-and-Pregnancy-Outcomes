@@ -49,7 +49,7 @@ The frontend expects the API at `http://localhost:8000`.
 
 ## Model Training
 
-Train the Random Forest model from the oversampled dataset:
+Train the XGBoost model from the oversampled dataset:
 
 ```bash
 cd webapp/backend
@@ -58,6 +58,8 @@ python scripts/train_model.py --csv ../oversampled_data.csv --out model/risk_mod
 
 This will save the model used by `/api/risk` and `/api/xai`.
 Metrics are written to `model/metrics/risk_metrics.json`.
+For reproducibility, this metrics file also records random seed/split settings,
+feature order, dataset SHA-256 hash, and exact `scikit-learn`/`xgboost`/`shap` versions.
 
 Train chat sentiment/risk model (TF-IDF + Logistic Regression):
 
@@ -142,8 +144,14 @@ Role controls:
 Run auto fairness from stored prediction logs:
 
 ```bash
-curl -X POST http://localhost:8000/api/fairness/auto -H "Authorization: Bearer <TOKEN>" -H "Content-Type: application/json" -d '{"protected_attribute":"income_band","positive_threshold":60}'
+curl -X POST http://localhost:8000/api/fairness/auto -H "Authorization: Bearer <TOKEN>" -H "Content-Type: application/json" -d '{"protected_attribute":"income_band","positive_threshold":60,"eval_thresholds":[40,50,60,70]}'
 ```
+
+Fairness reporting notes:
+
+- `positive_threshold=60` is the operating point for clinical triage workload alignment.
+- The API also computes threshold sensitivity by reporting disparate impact across `eval_thresholds`.
+- Threshold-free AUC-gap requires ground-truth outcome labels per group (not only prediction logs).
 
 ## Tests and CI
 

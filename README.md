@@ -76,7 +76,7 @@ The software is designed in a modular **Four-Layer Architecture**:
 graph TD
     A[Layer 1: Data Acquisition] -->|Multimodal Ingestion| B(Layer 2: Preprocessing & Balancing)
     B -->|SMOTE & Encoding| C{Layer 3: AI Intelligence Core}
-    C -->|Random Forest| D[Predictive Engine]
+    C -->|XGBoost| D[Predictive Engine]
     C -->|SHAP Kernel| E[Explainability Module]
     D & E --> F[Layer 4: Decision Support Interface]
     F -->|RAG Engine| G[Intervention Recommendations]
@@ -104,7 +104,7 @@ The model is trained and validated on a structured clinical dataset focusing on 
 ## 🛠️ Technology Stack
 
 * **Language:** Python 3.9+ 🐍
-* **Machine Learning:** Scikit-Learn (Random Forest), Imbalanced-Learn (SMOTE)
+* **Machine Learning:** XGBoost, Scikit-Learn, Imbalanced-Learn (SMOTE)
 * **Explainability:** SHAP (SHapley Additive exPlanations)
 * **Data Processing:** Pandas, NumPy
 * **Visualization:** Matplotlib, Seaborn
@@ -131,7 +131,7 @@ pip install pandas numpy scikit-learn matplotlib seaborn shap imbalanced-learn
 
 ### 3. Run the Training Pipeline
 
-To train the Random Forest model and generate performance metrics:
+To train the XGBoost model and generate performance metrics:
 
 ```bash
 python src/train_model.py
@@ -142,12 +142,40 @@ python src/train_model.py
 
 ## 📈 Performance Metrics (Preliminary)
 
-* **Algorithm:** Random Forest Classifier (`n_estimators=100`)
+* **Algorithm:** XGBoost Classifier (`n_estimators=300`)
 * **Accuracy:** **~88%** (on validation set)
 * **Precision (High Risk Class):** 0.87
 * **Recall (High Risk Class):** 0.88
 
 > **Key Insight:** Feature importance analysis confirms that *Behavioral Proxies* (Sleep, Fatigue) and *Gestational Age* significantly outweigh static demographic factors in predicting risk.
+
+---
+
+## 🔁 Reproducibility Protocol
+
+All experiments use:
+
+- `random_state = 42`
+- Stratified `80/20` split
+- SMOTE oversampling applied only on training set
+
+Reproducibility controls:
+
+- Fixed feature ordering is enforced by `DEFAULT_FEATURES` and stored in model metadata.
+- Training metrics include exact dataset hash (`SHA-256`) and the split/seed configuration.
+- Training metrics log exact dependency versions for `scikit-learn`, `xgboost`, and `shap`.
+
+The metadata is written to:
+
+- `webapp/backend/model/metrics/risk_metrics.json`
+
+---
+
+## ⚖️ Fairness Evaluation Protocol
+
+- Operational fairness is reported at `positive_threshold = 60` (clinical triage operating point).
+- To avoid threshold-specific bias claims, disparate impact is additionally reported across multiple thresholds (`40/50/60/70`).
+- A threshold-free **AUC gap** is only reported when group-wise ground-truth outcome labels are available.
 
 ---
 

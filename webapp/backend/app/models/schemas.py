@@ -146,6 +146,7 @@ class ConsentResponse(BaseModel):
 class FairnessAutoRequest(BaseModel):
     protected_attribute: str = "income_band"
     positive_threshold: float = 60.0
+    eval_thresholds: List[float] = Field(default_factory=lambda: [40.0, 50.0, 60.0, 70.0])
 
 
 class RetrainRequest(BaseModel):
