@@ -16,24 +16,46 @@ export default function CarePlan({
     return (
       <div className="care-plan empty">
         <h3>{title}</h3>
-        <p className="muted">No care plan items available. Generate guidance to see recommendations.</p>
+        <div className="care-plan-empty-message">
+          <p className="muted">No care plan items available yet.</p>
+          <p className="muted instruction-text">
+            💡 <strong>How to get recommendations:</strong>
+          </p>
+          <ul className="instruction-list">
+            <li>Submit a patient message in the chat</li>
+            <li>Or run a risk assessment</li>
+            <li>Recommendations will appear here automatically</li>
+          </ul>
+        </div>
       </div>
     );
   }
+
+  const checkedCount = items.filter((item) => {
+    const isChecked = item.checked || false;
+    return isChecked;
+  }).length;
 
   return (
     <div className="care-plan">
       <div className="care-plan-header">
         <h3>{title}</h3>
+        <p className="care-plan-instruction">
+          Review and mark completed recommendations. Click "Verify Source" to view evidence-based guidelines.
+        </p>
         {sources && sources.length > 0 && (
           <div className="care-plan-sources">
-            <span className="muted">Sources: </span>
+            <span className="muted">Evidence Sources: </span>
             {sources.map((source, idx) => (
               <button
                 key={`source-${idx}`}
                 className="chip chip-source"
-                onClick={() => onVerifySource && onVerifySource(source)}
-                title={`Verify source: ${source}`}
+                onClick={() => {
+                  if (onVerifySource) {
+                    onVerifySource(source);
+                  }
+                }}
+                title={`Click to verify source: ${source}`}
               >
                 {source.split(" (")[0]}
               </button>
@@ -54,15 +76,25 @@ export default function CarePlan({
                 <input
                   type="checkbox"
                   checked={isChecked}
-                  onChange={() => onToggleItem && onToggleItem(itemId)}
+                  onChange={() => {
+                    if (onToggleItem) {
+                      onToggleItem(itemId);
+                    }
+                  }}
                   disabled={!onToggleItem}
+                  aria-label={`Mark "${itemText.substring(0, 30)}..." as ${isChecked ? "incomplete" : "completed"}`}
                 />
                 <span className="care-plan-text">{itemText}</span>
               </label>
-              {item.source && (
+              {(item.source || (sources && sources.length > 0)) && (
                 <button
                   className="care-plan-verify"
-                  onClick={() => onVerifySource && onVerifySource(item.source)}
+                  onClick={() => {
+                    if (onVerifySource) {
+                      onVerifySource(item.source || sources[0]);
+                    }
+                  }}
+                  title="Click to view evidence source"
                 >
                   Verify Source
                 </button>
@@ -72,11 +104,19 @@ export default function CarePlan({
         })}
       </div>
 
-      {items.filter((item) => item.checked).length > 0 && (
+      {checkedCount > 0 && (
         <div className="care-plan-summary">
-          <p className="muted">
-            {items.filter((item) => item.checked).length} of {items.length} items completed
-          </p>
+          <div className="summary-progress">
+            <div className="progress-bar">
+              <div 
+                className="progress-fill" 
+                style={{ width: `${(checkedCount / items.length) * 100}%` }}
+              />
+            </div>
+            <p className="muted">
+              <strong>{checkedCount}</strong> of <strong>{items.length}</strong> recommendations completed
+            </p>
+          </div>
         </div>
       )}
     </div>

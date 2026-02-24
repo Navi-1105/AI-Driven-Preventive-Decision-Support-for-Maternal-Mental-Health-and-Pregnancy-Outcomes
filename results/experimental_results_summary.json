@@ -1,0 +1,79 @@
+{
+  "main_model": {
+    "n_total": 24654,
+    "n_train": 19723,
+    "n_test": 4931,
+    "features": [
+      "Age",
+      "Gestational Age",
+      "Trouble falling or staying sleep or sleeping too much",
+      "Poor appetite or overeating",
+      "Feeling tired or having little energy",
+      "Sufficient Money for Basic Needs",
+      "Thoughts that you would be better off dead, or of hurting yourself"
+    ],
+    "core_metrics": {
+      "accuracy": 0.9369296288785236,
+      "f1": 0.950295668850887,
+      "auc": 0.9834492137320044,
+      "pr_auc": 0.9894096205582529,
+      "brier_score": 0.04565920149954696
+    },
+    "confusion_matrix": {
+      "tp": 2973,
+      "fp": 159,
+      "fn": 152,
+      "tn": 1647
+    },
+    "sensitivity": 0.95136,
+    "specificity": 0.9119601328903655,
+    "cv": {
+      "auc_mean": 0.980623478490973,
+      "auc_std": 0.003517237619473983,
+      "f1_mean": 0.9466301111165378,
+      "f1_std": 0.0041777291711055185
+    },
+    "fairness": {
+      "protected_attribute": "Sufficient Money for Basic Needs",
+      "threshold_tau": 0.6,
+      "group_positive_prediction_rate": {
+        "0.0": 0.6042918454935622,
+        "1.0": 0.6727416798732171,
+        "2.0": 0.6314127861089187,
+        "3.0": 0.5408245755860954
+      },
+      "disparate_impact_tau_0_60": 0.8039112065838073,
+      "group_auc": {
+        "0.0": 0.9413068362480127,
+        "1.0": 1.0,
+        "2.0": 0.9374845426048944,
+        "3.0": 0.9999947338764462
+      },
+      "auc_gap_across_groups": 0.06251545739510556
+    }
+  },
+  "ablation_without_gestational_age": {
+    "features": [
+      "Age",
+      "Trouble falling or staying sleep or sleeping too much",
+      "Poor appetite or overeating",
+      "Feeling tired or having little energy",
+      "Sufficient Money for Basic Needs",
+      "Thoughts that you would be better off dead, or of hurting yourself"
+    ],
+    "core_metrics": {
+      "accuracy": 0.9022510646927601,
+      "f1": 0.9231259968102073,
+      "auc": 0.9704376522702104,
+      "pr_auc": 0.9823961924283531,
+      "brier_score": 0.06584407606373917
+    },
+    "delta_vs_main": {
+      "accuracy": -0.03467856418576354,
+      "f1": -0.02716967204067966,
+      "auc": -0.013011561461794052,
+      "pr_auc": -0.007013428129899801,
+      "brier_score": 0.020184874564192205
+    }
+  }
+}

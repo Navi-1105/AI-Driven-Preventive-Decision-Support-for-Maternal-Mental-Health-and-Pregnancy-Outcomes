@@ -1,0 +1,18 @@
+\begin{table}[h]
+\centering
+\caption{Fairness Analysis: Disparate Impact by Protected Group}
+\label{tab:fairness_analysis}
+\begin{tabular}{lcc}
+\hline
+Protected Group & Positive Rate & Status \\
+\hline
+low_income & 0.250 & Bias \\
+middle_income & 0.300 & Fair \\
+high_income & 0.350 & Fair \\
+\hline
+\textbf{Disparate Impact} & \multicolumn{2}{c}{0.714} \\
+\textbf{Bias Detected} & \multicolumn{2}{c}{Yes} \\
+\textbf{Mitigation Strategy} & \multicolumn{2}{c}{Reweighting} \\
+\hline
+\end{tabular}
+\end{table}

@@ -1,0 +1,14 @@
+[
+  {
+    "group": "low_income",
+    "positive_rate": 0.25
+  },
+  {
+    "group": "middle_income",
+    "positive_rate": 0.30
+  },
+  {
+    "group": "high_income",
+    "positive_rate": 0.35
+  }
+]

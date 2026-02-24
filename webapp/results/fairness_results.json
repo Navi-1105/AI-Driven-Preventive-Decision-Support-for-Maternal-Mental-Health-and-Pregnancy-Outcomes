@@ -1,0 +1,19 @@
+{
+  "groups": [
+    {
+      "group": "low_income",
+      "positive_rate": 0.25
+    },
+    {
+      "group": "middle_income",
+      "positive_rate": 0.3
+    },
+    {
+      "group": "high_income",
+      "positive_rate": 0.35
+    }
+  ],
+  "disparate_impact": 0.7142857142857143,
+  "bias_detected": true,
+  "mitigation_strategy": "reweighting"
+}

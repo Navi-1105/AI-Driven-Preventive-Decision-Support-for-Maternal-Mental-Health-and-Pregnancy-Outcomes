@@ -51,7 +51,12 @@ export default function UnifiedWorkspace({
       {/* Left Column: Patient Profile & Context */}
       <div className="workspace-column left-column">
         <div className="column-card">
-          <h2>Patient Profile & Context</h2>
+          <div className="section-header">
+            <h2>Patient Profile & Context</h2>
+            <p className="section-description">
+              Enter patient information and risk factors. The system will calculate risk and display trajectory over time.
+            </p>
+          </div>
 
           {/* Patient Identity */}
           <div className="patient-identity-section">
@@ -209,7 +214,12 @@ export default function UnifiedWorkspace({
       <div className="workspace-column middle-column">
         <div className="column-card">
           <div className="chat-header">
-            <h2>Clinical Co-Pilot Chat</h2>
+            <div>
+              <h2>Clinical Co-Pilot Chat</h2>
+              <p className="section-description">
+                Enter patient messages to analyze sentiment and risk. Keywords are automatically highlighted with SHAP contributions.
+              </p>
+            </div>
             {chatResult && (
               <div className="chat-risk-indicator">
                 <RiskBadge value={chatResult.risk_percent} />
@@ -245,13 +255,17 @@ export default function UnifiedWorkspace({
               <label className="file-upload-label">
                 <input
                   type="file"
-                  accept=".txt,.md,.csv"
+                  accept=".txt,.md,.csv,.pdf"
                   onChange={handleTranscriptUpload}
                   disabled={chatLocked}
                   style={{ display: "none" }}
+                  title="Supported formats: Text (.txt), Markdown (.md), CSV (.csv), PDF (.pdf)"
                 />
                 <span className="secondary">Upload Transcript</span>
               </label>
+              <p className="muted" style={{ fontSize: "11px", marginTop: "4px" }}>
+                Formats: .txt, .md, .csv, .pdf
+              </p>
             </div>
           </div>
 
@@ -283,6 +297,12 @@ export default function UnifiedWorkspace({
       <div className="workspace-column right-column">
         {/* SHAP XAI Inspector */}
         <div className="column-card">
+          <div className="section-header">
+            <h2>Feature Impact Analysis</h2>
+            <p className="section-description">
+              Understand which factors contribute most to the risk score. Positive values increase risk, negative values decrease risk.
+            </p>
+          </div>
           <ShapExplanation
             contributions={xai?.contributions || []}
             riskPercent={risk?.risk_percent || chatResult?.risk_percent}
@@ -292,11 +312,25 @@ export default function UnifiedWorkspace({
 
         {/* RAG Care Plan */}
         <div className="column-card">
+          <div className="section-header">
+            <h2>Recommended Actions</h2>
+            <p className="section-description">
+              Evidence-based care plan generated from clinical guidelines. Mark items as completed and verify sources for transparency.
+            </p>
+          </div>
           <CarePlan
             items={carePlanItems || []}
             sources={chatResult?.sources || ragResponse?.sources || []}
-            onToggleItem={toggleCarePlanItem}
-            onVerifySource={onOpenSource}
+            onToggleItem={(itemId) => {
+              if (toggleCarePlanItem && itemId) {
+                toggleCarePlanItem(itemId);
+              }
+            }}
+            onVerifySource={(source) => {
+              if (onOpenSource && source) {
+                onOpenSource(source);
+              }
+            }}
             title="Evidence-Based Care Plan"
           />
         </div>

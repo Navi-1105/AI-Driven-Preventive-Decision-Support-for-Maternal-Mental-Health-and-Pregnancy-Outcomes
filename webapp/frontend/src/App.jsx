@@ -33,9 +33,9 @@ const NAV_ITEMS = [
 
 export default function App() {
   const [auth, setAuth] = useState({
-    username: getStoredValue(STORAGE_KEYS.username, "clin1"),
-    password: "StrongPass123",
-    role: "clinician"
+    username: getStoredValue(STORAGE_KEYS.username, ""),
+    password: "",
+    role: "" // Start with no role selected
   });
   const [token, setToken] = useState(() => getStoredValue(STORAGE_KEYS.token, ""));
   const [currentRole, setCurrentRole] = useState(() => getStoredValue(STORAGE_KEYS.role, ""));
@@ -246,9 +246,19 @@ export default function App() {
   });
 
   const handleRegister = async () => {
+    if (!auth.role) {
+      setAuthStatus("Please select a role first");
+      return;
+    }
+    if (!auth.username || !auth.password) {
+      setAuthStatus("Please enter both username and password");
+      return;
+    }
+    
     try {
       setAuthLoading(true);
       setApiStatus("");
+      setAuthStatus("");
       const data = await requestJson(`${API_BASE}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -256,19 +266,37 @@ export default function App() {
       });
       setToken(data.access_token);
       setCurrentRole(data.role);
-      setAuthStatus(`Registered as ${data.role}`);
-      setActivePage(data.role === "clinician" || data.role === "admin" ? "workspace" : "overview");
+      setAuthStatus(`✓ Successfully registered as ${data.role}`);
+      
+      // Route to role-specific page
+      if (data.role === "clinician" || data.role === "admin") {
+        setActivePage("workspace");
+      } else if (data.role === "patient") {
+        setActivePage("overview");
+      } else {
+        setActivePage("overview");
+      }
     } catch (error) {
-      setAuthStatus(error.message || "Register failed");
+      setAuthStatus(`✗ Registration failed: ${error.message || "Please try again"}`);
     } finally {
       setAuthLoading(false);
     }
   };
 
   const handleLogin = async () => {
+    if (!auth.role) {
+      setAuthStatus("Please select a role first");
+      return;
+    }
+    if (!auth.username || !auth.password) {
+      setAuthStatus("Please enter both username and password");
+      return;
+    }
+    
     try {
       setAuthLoading(true);
       setApiStatus("");
+      setAuthStatus("");
       const data = await requestJson(`${API_BASE}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -276,10 +304,18 @@ export default function App() {
       });
       setToken(data.access_token);
       setCurrentRole(data.role);
-      setAuthStatus(`Logged in as ${data.role}`);
-      setActivePage(data.role === "clinician" || data.role === "admin" ? "workspace" : "overview");
+      setAuthStatus(`✓ Successfully logged in as ${data.role}`);
+      
+      // Route to role-specific page
+      if (data.role === "clinician" || data.role === "admin") {
+        setActivePage("workspace");
+      } else if (data.role === "patient") {
+        setActivePage("overview");
+      } else {
+        setActivePage("overview");
+      }
     } catch (error) {
-      setAuthStatus(error.message || "Login failed");
+      setAuthStatus(`✗ Login failed: ${error.message || "Invalid credentials"}`);
     } finally {
       setAuthLoading(false);
     }
@@ -301,6 +337,12 @@ export default function App() {
     setChatLocked(false);
     setRagResponse(null);
     setFairnessResult(null);
+    // Reset auth form
+    setAuth({
+      username: "",
+      password: "",
+      role: ""
+    });
     clearStoredSession();
   };
 
@@ -438,7 +480,13 @@ export default function App() {
         ]);
       }
       setCaseStatus("pending_review");
-      setCarePlanItems(carePlan.map((item) => ({ ...item, checked: false })));
+      // Initialize care plan items from chat guidance
+      const newCarePlanItems = carePlan.map((item) => ({ 
+        ...item, 
+        checked: false,
+        id: item.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      }));
+      setCarePlanItems(newCarePlanItems);
     } catch (error) {
       setChatResult(null);
       setApiStatus(error.message);
@@ -578,18 +626,113 @@ export default function App() {
   const handleTranscriptUpload = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    const allowed = [".txt", ".md", ".csv"];
+    
+    const allowed = [".txt", ".md", ".csv", ".pdf"];
     const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+    
     if (!allowed.includes(ext)) {
-      setApiStatus("Unsupported file format. Use .txt, .md, or .csv transcript.");
+      setApiStatus("Unsupported file format. Supported formats: .txt, .md, .csv, or .pdf");
       return;
     }
-    const text = await file.text();
-    setChatMessage((prev) => (prev ? `${prev}\n\n${text}` : text));
+
+    try {
+      setApiStatus("");
+      let text = "";
+
+      if (ext === ".pdf") {
+        // Extract text from PDF
+        text = await extractTextFromPDF(file);
+      } else {
+        // Read text files directly
+        text = await file.text();
+      }
+
+      if (!text || text.trim().length === 0) {
+        setApiStatus("⚠️ File appears to be empty or could not be read.");
+        return;
+      }
+
+      // Add file info header
+      const fileInfo = `[Uploaded: ${file.name} - ${(file.size / 1024).toFixed(1)} KB]\n\n`;
+      setChatMessage((prev) => (prev ? `${prev}\n\n${fileInfo}${text}` : `${fileInfo}${text}`));
+      setApiStatus(`✓ Successfully loaded ${file.name} (${(file.size / 1024).toFixed(1)} KB, ${text.split('\n').length} lines)`);
+      
+      // Clear the file input so the same file can be uploaded again if needed
+      event.target.value = "";
+    } catch (error) {
+      setApiStatus(`✗ Error: ${error.message || "Failed to process file"}`);
+      console.error("File upload error:", error);
+    }
+  };
+
+  // PDF text extraction function using PDF.js
+  const extractTextFromPDF = async (file) => {
+    try {
+      // Check if PDF.js is loaded (from index.html)
+      const pdfjsLib = window.pdfjsLib || window.pdfjs;
+      
+      if (!pdfjsLib) {
+        throw new Error("PDF.js library not loaded. Please refresh the page.");
+      }
+
+      // Set worker source if not already set
+      if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      }
+
+      setApiStatus("Extracting text from PDF...");
+      
+      const arrayBuffer = await file.arrayBuffer();
+      const loadingTask = pdfjsLib.getDocument({ 
+        data: arrayBuffer,
+        useSystemFonts: true
+      });
+      const pdf = await loadingTask.promise;
+      
+      let fullText = "";
+      const totalPages = pdf.numPages;
+      
+      // Extract text from all pages
+      for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items
+          .map((item) => item.str)
+          .join(" ")
+          .trim();
+        
+        if (pageText) {
+          fullText += `${pageText}\n\n`;
+        }
+      }
+      
+      if (!fullText.trim()) {
+        throw new Error("No text content found in PDF. The PDF may contain only images (scanned document).");
+      }
+      
+      return fullText.trim();
+    } catch (error) {
+      console.error("PDF extraction error:", error);
+      throw new Error(
+        `PDF extraction failed: ${error.message}. ` +
+        `Note: Scanned PDFs (image-based) are not supported. ` +
+        `Please use a PDF with selectable text or convert to .txt format.`
+      );
+    }
   };
 
   const toggleCarePlanItem = (id) => {
-    setCarePlanItems((prev) => prev.map((item) => (item.id === id ? { ...item, checked: !item.checked } : item)));
+    setCarePlanItems((prev) => {
+      const updated = prev.map((item) => {
+        const itemId = item.id || item;
+        const matchId = typeof id === "string" ? id : (id?.id || id);
+        if (itemId === matchId || item === id) {
+          return { ...item, checked: !(item.checked || false) };
+        }
+        return item;
+      });
+      return updated;
+    });
   };
 
   const toggleChatCarePlanItem = (messageId, itemId) => {
@@ -636,45 +779,113 @@ export default function App() {
         <header className="hero">
           <div>
             <p className="eyebrow">Perinatal Preventive Decision Support</p>
-            <h1>Authentication</h1>
-            <p className="subtext">Login/Register to continue. Role decides landing page: Client or Clinical.</p>
+            <h1>Welcome</h1>
+            <p className="subtext">Please select your role and sign in to access the system.</p>
           </div>
         </header>
-        <section className="grid">
-          <div className="card">
-            <h2>Sign In</h2>
-            <p className={`muted ${backendHealth.status === "offline" ? "status-bad" : "status-good"}`}>
-              {backendHealth.message}
+        <section className="auth-section">
+          <div className="auth-card">
+            <h2>Select Your Role</h2>
+            <p className="auth-instruction">
+              Choose your role to access the appropriate portal. Each role provides different features and access levels.
             </p>
-            <div className="row">
-              <input
-                value={auth.username}
-                onChange={(e) => setAuth((prev) => ({ ...prev, username: e.target.value }))}
-                placeholder="username"
-              />
-              <input
-                type="password"
-                value={auth.password}
-                onChange={(e) => setAuth((prev) => ({ ...prev, password: e.target.value }))}
-                placeholder="password"
-              />
-              <input
-                value={auth.role}
-                onChange={(e) => setAuth((prev) => ({ ...prev, role: e.target.value }))}
-                placeholder="patient|clinician|admin"
-              />
-            </div>
-            <div className="row">
-              <button onClick={handleRegister} disabled={authLoading}>
-                {authLoading ? "Please wait..." : "Register"}
+            
+            <div className="role-selection">
+              <button
+                className={`role-btn ${auth.role === "patient" ? "selected" : ""}`}
+                onClick={() => setAuth((prev) => ({ ...prev, role: "patient" }))}
+              >
+                <div className="role-icon">👤</div>
+                <div className="role-info">
+                  <h3>Patient Portal</h3>
+                  <p className="muted">Access your personal health information and risk assessments</p>
+                </div>
               </button>
-              <button className="secondary" onClick={handleLogin} disabled={authLoading}>
-                {authLoading ? "Please wait..." : "Login"}
+              
+              <button
+                className={`role-btn ${auth.role === "clinician" ? "selected" : ""}`}
+                onClick={() => setAuth((prev) => ({ ...prev, role: "clinician" }))}
+              >
+                <div className="role-icon">👨‍⚕️</div>
+                <div className="role-info">
+                  <h3>Clinician Portal</h3>
+                  <p className="muted">Access unified workspace, patient management, and clinical tools</p>
+                </div>
               </button>
             </div>
-            <p className="muted">API: {API_BASE}</p>
-            {authStatus ? <p className="muted">{authStatus}</p> : null}
-            {apiStatus ? <p className="muted">API error: {apiStatus}</p> : null}
+
+            {auth.role && (
+              <div className="login-form">
+                <h3>Sign In as {auth.role === "patient" ? "Patient" : "Clinician"}</h3>
+                <p className={`muted ${backendHealth.status === "offline" ? "status-bad" : "status-good"}`}>
+                  {backendHealth.message}
+                </p>
+                
+                <div className="form-group">
+                  <label>
+                    Username
+                    <input
+                      value={auth.username}
+                      onChange={(e) => setAuth((prev) => ({ ...prev, username: e.target.value }))}
+                      placeholder={auth.role === "patient" ? "patient-001" : "clin1"}
+                      autoFocus
+                    />
+                  </label>
+                  
+                  <label>
+                    Password
+                    <input
+                      type="password"
+                      value={auth.password}
+                      onChange={(e) => setAuth((prev) => ({ ...prev, password: e.target.value }))}
+                      placeholder="Enter your password"
+                      onKeyPress={(e) => {
+                        if (e.key === "Enter" && auth.username && auth.password) {
+                          handleLogin();
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+
+                <div className="auth-actions">
+                  <button 
+                    onClick={handleLogin} 
+                    disabled={authLoading || !auth.username || !auth.password || !auth.role}
+                    className="primary-btn"
+                  >
+                    {authLoading ? "Signing in..." : "Sign In"}
+                  </button>
+                  <button 
+                    onClick={handleRegister} 
+                    disabled={authLoading || !auth.username || !auth.password || !auth.role}
+                    className="secondary-btn"
+                  >
+                    {authLoading ? "Registering..." : "Register New Account"}
+                  </button>
+                </div>
+
+                {authStatus && (
+                  <div className={`auth-status ${authStatus.includes("failed") || authStatus.includes("error") ? "error" : "success"}`}>
+                    {authStatus}
+                  </div>
+                )}
+                
+                {apiStatus && (
+                  <div className="auth-status error">
+                    API error: {apiStatus}
+                  </div>
+                )}
+                
+                <p className="muted auth-footer">API Endpoint: {API_BASE}</p>
+              </div>
+            )}
+
+            {!auth.role && (
+              <div className="role-prompt">
+                <p className="muted">👆 Please select your role above to continue</p>
+              </div>
+            )}
           </div>
         </section>
       </div>
@@ -850,7 +1061,16 @@ export default function App() {
             </button>
             <label>
               Upload Transcript
-              <input type="file" accept=".txt,.md,.csv" onChange={handleTranscriptUpload} disabled={chatLocked} />
+              <input 
+                type="file" 
+                accept=".txt,.md,.csv,.pdf" 
+                onChange={handleTranscriptUpload} 
+                disabled={chatLocked}
+                title="Supported formats: Text (.txt), Markdown (.md), CSV (.csv), PDF (.pdf)"
+              />
+              <p className="muted" style={{ fontSize: "11px", marginTop: "4px" }}>
+                Supported formats: .txt, .md, .csv, .pdf
+              </p>
             </label>
             {chatLocked ? (
               <div className="crisis-banner">
@@ -880,14 +1100,6 @@ export default function App() {
                   <a className="btn-link" href="tel:988">Call 988</a>
                 </div>
                 {escalationStatus ? <p className="muted">{escalationStatus}</p> : null}
-                <div className="keypoint-list">
-                  {toKeyPoints(chatResult.guidance).map((point, idx) => (
-                    <div className="keypoint-item" key={`${point}-${idx}`}>
-                      <span className="keypoint-dot" />
-                      <span>{point}</span>
-                    </div>
-                  ))}
-                </div>
                 {chatResult.sources?.length ? (
                   <div className="chip-wrap">
                     {chatResult.sources.map((source) => (
