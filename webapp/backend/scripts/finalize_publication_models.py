@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from lightgbm import LGBMClassifier
+from sklearn.calibration import CalibratedClassifierCV, calibration_curve
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
@@ -23,7 +25,8 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 
 RANDOM_STATE = 42
-TARGET = "Labelling"
+TARGET = "Scalling>=10"
+SCORE_COL = "Scalling"
 
 STRICT_HISTORY_FEATURES = [
     "Age",
@@ -55,6 +58,14 @@ def _metrics(y_true: np.ndarray, y_proba: np.ndarray, threshold: float = 0.5) ->
     }
 
 
+def _sha256sum(file_path: Path) -> str:
+    h = hashlib.sha256()
+    with file_path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def _build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
     num_cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
     cat_cols = [c for c in X.columns if c not in num_cols]
@@ -77,8 +88,11 @@ def _build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
 
 def run(csv_path: Path, output_dir: Path, model_dir: Path):
     df = pd.read_csv(csv_path)
-    df = df[STRICT_HISTORY_FEATURES + [TARGET]].dropna(subset=[TARGET])
-    y = df[TARGET].astype(str).str.strip().str.lower().eq("depressed").astype(int).to_numpy()
+    # Explicitly remove any derived label column and build label from Scalling threshold.
+    if "Labelling" in df.columns:
+        df = df.drop(columns=["Labelling"])
+    df = df[STRICT_HISTORY_FEATURES + [SCORE_COL]].dropna(subset=[SCORE_COL])
+    y = (pd.to_numeric(df[SCORE_COL], errors="coerce") >= 10).astype(int).to_numpy()
     X = df[STRICT_HISTORY_FEATURES].copy()
 
     X_train, X_test, y_train, y_test = train_test_split(
@@ -120,9 +134,12 @@ def run(csv_path: Path, output_dir: Path, model_dir: Path):
 
     main_pipe.fit(X_train, y_train)
     rf_pipe.fit(X_train, y_train)
+    calibrated_main = CalibratedClassifierCV(main_pipe, method="isotonic", cv=3)
+    calibrated_main.fit(X_train, y_train)
 
     p_main_tr = main_pipe.predict_proba(X_train)[:, 1]
     p_main_te = main_pipe.predict_proba(X_test)[:, 1]
+    p_main_te_cal = calibrated_main.predict_proba(X_test)[:, 1]
     p_rf_tr = rf_pipe.predict_proba(X_train)[:, 1]
     p_rf_te = rf_pipe.predict_proba(X_test)[:, 1]
 
@@ -132,12 +149,18 @@ def run(csv_path: Path, output_dir: Path, model_dir: Path):
     payload = {
         "feature_set": STRICT_HISTORY_FEATURES,
         "dataset_rows": int(len(df)),
+        "dataset_sha256": _sha256sum(csv_path),
+        "label_definition": "y = (Scalling >= 10).astype(int)",
         "main_model": {
             "name": "lightgbm_preventive_main",
             "train_auc": round(float(roc_auc_score(y_train, p_main_tr)), 4),
             "cv_auc_mean": round(float(np.mean(main_cv)), 4),
             "cv_auc_std": round(float(np.std(main_cv)), 4),
             "test_metrics": _metrics(y_test, p_main_te),
+        },
+        "main_model_isotonic_calibrated": {
+            "name": "lightgbm_preventive_main_isotonic",
+            "test_metrics": _metrics(y_test, p_main_te_cal),
         },
         "sensitivity_model": {
             "name": "random_forest_sensitivity",
@@ -194,6 +217,22 @@ def run(csv_path: Path, output_dir: Path, model_dir: Path):
         "\n".join(lines), encoding="utf-8"
     )
 
+    # Calibration curve (uncalibrated vs isotonic calibrated LightGBM).
+    frac_pos_raw, mean_pred_raw = calibration_curve(y_test, p_main_te, n_bins=10, strategy="quantile")
+    frac_pos_cal, mean_pred_cal = calibration_curve(y_test, p_main_te_cal, n_bins=10, strategy="quantile")
+    fig_cal, ax_cal = plt.subplots(figsize=(6, 5))
+    ax_cal.plot([0, 1], [0, 1], "--", color="gray", label="Perfect calibration")
+    ax_cal.plot(mean_pred_raw, frac_pos_raw, marker="o", label="LightGBM raw")
+    ax_cal.plot(mean_pred_cal, frac_pos_cal, marker="o", label="LightGBM isotonic")
+    ax_cal.set_xlabel("Mean predicted probability")
+    ax_cal.set_ylabel("Observed positive fraction")
+    ax_cal.set_title("Calibration Curve (Test Set)")
+    ax_cal.legend()
+    ax_cal.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(output_dir / "figures" / "publication_calibration_curve.png", dpi=300, bbox_inches="tight")
+    plt.close(fig_cal)
+
     fig, ax = plt.subplots(figsize=(7, 4))
     names = ["LightGBM Main", "RF Sensitivity"]
     aucs = [payload["main_model"]["test_metrics"]["roc_auc"], payload["sensitivity_model"]["test_metrics"]["roc_auc"]]
@@ -210,6 +249,7 @@ def run(csv_path: Path, output_dir: Path, model_dir: Path):
     print("Saved:", output_dir / "publication_model_selection.json")
     print("Saved:", output_dir / "tables" / "publication_model_selection.tex")
     print("Saved:", output_dir / "figures" / "publication_model_selection_auc.png")
+    print("Saved:", output_dir / "figures" / "publication_calibration_curve.png")
     print("Saved:", model_dir / "risk_model_preventive_main_lgbm.joblib")
     print("Main model test AUC:", payload["main_model"]["test_metrics"]["roc_auc"])
 

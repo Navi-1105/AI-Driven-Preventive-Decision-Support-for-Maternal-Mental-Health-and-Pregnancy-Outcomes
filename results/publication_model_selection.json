@@ -16,6 +16,8 @@
     "Male Gender Preference"
   ],
   "dataset_rows": 14008,
+  "dataset_sha256": "3d2efa3aaea9e4ba3a404c6dbbd4a82a4c832c7cd578de10ff2ae28967062c42",
+  "label_definition": "y = (Scalling >= 10).astype(int)",
   "main_model": {
     "name": "lightgbm_preventive_main",
     "train_auc": 0.9638,
@@ -28,6 +30,17 @@
       "f1": 0.8097,
       "roc_auc": 0.8302,
       "brier_score": 0.1788
+    }
+  },
+  "main_model_isotonic_calibrated": {
+    "name": "lightgbm_preventive_main_isotonic",
+    "test_metrics": {
+      "accuracy": 0.7662,
+      "precision": 0.7671,
+      "recall": 0.918,
+      "f1": 0.8358,
+      "roc_auc": 0.8335,
+      "brier_score": 0.1623
     }
   },
   "sensitivity_model": {
