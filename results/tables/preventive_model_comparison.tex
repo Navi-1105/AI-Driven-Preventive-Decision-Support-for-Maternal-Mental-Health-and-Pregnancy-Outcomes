@@ -1,0 +1,14 @@
+\begin{table}[h]
+\centering
+\caption{Leakage Audit: Full vs Preventive vs Baseline}
+\label{tab:preventive_models}
+\begin{tabular}{lcccccc}
+\hline
+Model & Features & Train AUC & Test AUC & CV AUC & Recall@0.5 & Brier \\
+\hline
+Model A Full & 25 & 1.000 & 1.000 & 1.000 & 0.982 & 0.023 \\
+Model B Preventive & 16 & 0.784 & 0.686 & 0.669 & 0.664 & 0.224 \\
+Model C Baseline & 9 & 0.749 & 0.655 & 0.641 & 0.651 & 0.230 \\
+\hline
+\end{tabular}
+\end{table}

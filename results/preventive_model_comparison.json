@@ -1,0 +1,170 @@
+{
+  "model_a_full": {
+    "n_features": 25,
+    "features": [
+      "Age",
+      "Gestational Age",
+      "Number of sons ",
+      "Number of daughters",
+      "Total Number of Children",
+      "Gravida",
+      "Female Education",
+      "Husband Education",
+      "Working Status",
+      "Physical Health ",
+      "Previous Miscarriage",
+      "Sufficient Money for Basic Needs",
+      "Current Appereance Acceptance",
+      "Family System",
+      "Male Gender Preference",
+      "Relationship with Mother in-law",
+      "Little interest or pleasure in doing things",
+      "Feeling down, depressed, or hopeless",
+      "Trouble falling or staying sleep or sleeping too much",
+      "Feeling tired or having little energy",
+      "Poor appetite or overeating",
+      "Feeling badabout yourself that you are failure or have let yourself or your family down",
+      "Trouble concentrating on things, such as reading the newspaper or watching television ",
+      "Moving or speaking so slowly that other people could have Noticed. ",
+      "Thoughts that you would be better off dead, or of hurting yourself"
+    ],
+    "train_auc": 1.0,
+    "test_default_threshold": {
+      "accuracy": 0.9875,
+      "precision": 0.9983,
+      "recall": 0.9824,
+      "f1": 0.9903,
+      "roc_auc": 0.9998,
+      "brier_score": 0.0226
+    },
+    "test_recall_tuned": {
+      "threshold": 0.32,
+      "accuracy": 0.99,
+      "precision": 0.9848,
+      "recall": 1.0,
+      "f1": 0.9923,
+      "roc_auc": 0.9998,
+      "brier_score": 0.0226,
+      "recall_gain_vs_0_5": 0.0176,
+      "precision_drop_vs_0_5": 0.0135
+    },
+    "cv_roc_auc_mean": 0.9996,
+    "cv_roc_auc_std": 0.0001
+  },
+  "model_b_preventive": {
+    "n_features": 16,
+    "features": [
+      "Age",
+      "Gestational Age",
+      "Number of sons ",
+      "Number of daughters",
+      "Total Number of Children",
+      "Gravida",
+      "Female Education",
+      "Husband Education",
+      "Working Status",
+      "Physical Health ",
+      "Previous Miscarriage",
+      "Sufficient Money for Basic Needs",
+      "Current Appereance Acceptance",
+      "Family System",
+      "Male Gender Preference",
+      "Relationship with Mother in-law"
+    ],
+    "train_auc": 0.7837,
+    "test_default_threshold": {
+      "accuracy": 0.6417,
+      "precision": 0.7538,
+      "recall": 0.6641,
+      "f1": 0.7061,
+      "roc_auc": 0.6861,
+      "brier_score": 0.2235
+    },
+    "test_recall_tuned": {
+      "threshold": 0.43,
+      "accuracy": 0.6959,
+      "precision": 0.7171,
+      "recall": 0.8767,
+      "f1": 0.7889,
+      "roc_auc": 0.6861,
+      "brier_score": 0.2235,
+      "recall_gain_vs_0_5": 0.2126,
+      "precision_drop_vs_0_5": 0.0367
+    },
+    "cv_roc_auc_mean": 0.6695,
+    "cv_roc_auc_std": 0.0111,
+    "learning_curve": {
+      "train_sizes": [
+        2241,
+        4482,
+        6723,
+        8964,
+        11206
+      ],
+      "train_auc_mean": [
+        0.8637,
+        0.8037,
+        0.7934,
+        0.7908,
+        0.7775
+      ],
+      "train_auc_std": [
+        0.0031,
+        0.0026,
+        0.0025,
+        0.0014,
+        0.0017
+      ],
+      "cv_auc_mean": [
+        0.588,
+        0.6359,
+        0.6553,
+        0.6608,
+        0.6699
+      ],
+      "cv_auc_std": [
+        0.0088,
+        0.0133,
+        0.0099,
+        0.0098,
+        0.0103
+      ]
+    }
+  },
+  "model_c_baseline": {
+    "n_features": 9,
+    "features": [
+      "Age",
+      "Gestational Age",
+      "Total Number of Children",
+      "Gravida",
+      "Female Education",
+      "Husband Education",
+      "Working Status",
+      "Previous Miscarriage",
+      "Sufficient Money for Basic Needs"
+    ],
+    "train_auc": 0.7493,
+    "test_default_threshold": {
+      "accuracy": 0.6188,
+      "precision": 0.7314,
+      "recall": 0.6509,
+      "f1": 0.6888,
+      "roc_auc": 0.6548,
+      "brier_score": 0.2295
+    },
+    "test_recall_tuned": {
+      "threshold": 0.4,
+      "accuracy": 0.6874,
+      "precision": 0.6933,
+      "recall": 0.9284,
+      "f1": 0.7938,
+      "roc_auc": 0.6548,
+      "brier_score": 0.2295,
+      "recall_gain_vs_0_5": 0.2775,
+      "precision_drop_vs_0_5": 0.0381
+    },
+    "cv_roc_auc_mean": 0.6411,
+    "cv_roc_auc_std": 0.0113
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "baseline_comparison": {
+    "logistic_regression": {
+      "accuracy": 0.7664,
+      "precision": 0.6364,
+      "recall": 0.7838,
+      "f1": 0.7025,
+      "roc_auc": 0.8564,
+      "confusion_matrix": [
+        [
+          1374,
+          441
+        ],
+        [
+          213,
+          772
+        ]
+      ]
+    },
+    "random_forest": {
+      "accuracy": 0.9339,
+      "precision": 0.8984,
+      "recall": 0.9157,
+      "f1": 0.907,
+      "roc_auc": 0.9658,
+      "confusion_matrix": [
+        [
+          1713,
+          102
+        ],
+        [
+          83,
+          902
+        ]
+      ]
+    },
+    "xgboost": {
+      "accuracy": 0.7871,
+      "precision": 0.6696,
+      "recall": 0.7797,
+      "f1": 0.7205,
+      "roc_auc": 0.8711,
+      "confusion_matrix": [
+        [
+          1436,
+          379
+        ],
+        [
+          217,
+          768
+        ]
+      ]
+    }
+  },
+  "recall_tuning_xgboost": {
+    "threshold": 0.41500000000000004,
+    "accuracy": 0.7693,
+    "precision": 0.6303,
+    "recall": 0.8325,
+    "f1": 0.7174,
+    "roc_auc": 0.8711,
+    "confusion_matrix": [
+      [
+        1334,
+        481
+      ],
+      [
+        165,
+        820
+      ]
+    ],
+    "recall_gain_vs_0_5": 0.0528,
+    "precision_drop_vs_0_5": 0.0393
+  },
+  "statistical_justification": {
+    "xgboost_vs_logistic": {
+      "auc_diff_mean": 0.0147,
+      "ci95_low": 0.0098,
+      "ci95_high": 0.0195,
+      "p_value_two_sided": 0.0,
+      "n_bootstraps": 2000
+    },
+    "xgboost_vs_random_forest": {
+      "auc_diff_mean": -0.0946,
+      "ci95_low": -0.1066,
+      "ci95_high": -0.0828,
+      "p_value_two_sided": 0.0,
+      "n_bootstraps": 2000
+    }
+  },
+  "explainability_summary": {
+    "method": "SHAP (global summary + feature importance + local waterfall)",
+    "files_expected": [
+      "figures/shap_feature_importance.png",
+      "figures/shap_summary.png",
+      "figures/shap_waterfall.png",
+      "tables/feature_importance.tex"
+    ],
+    "note": "Use top SHAP features with directionality in Results discussion."
+  }
+}

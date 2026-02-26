@@ -49,17 +49,27 @@ The frontend expects the API at `http://localhost:8000`.
 
 ## Model Training
 
-Train the XGBoost model from the oversampled dataset:
+Train the leakage-safe XGBoost model from raw data:
 
 ```bash
 cd webapp/backend
-python scripts/train_model.py --csv ../oversampled_data.csv --out model/risk_model.joblib
+python scripts/train_model.py --csv ../dataset.csv --balance-strategy smote --out model/risk_model.joblib
 ```
 
 This will save the model used by `/api/risk` and `/api/xai`.
 Metrics are written to `model/metrics/risk_metrics.json`.
 For reproducibility, this metrics file also records random seed/split settings,
 feature order, dataset SHA-256 hash, and exact `scikit-learn`/`xgboost`/`shap` versions.
+Balancing is applied to the training split only (test split remains untouched).
+
+Train a leakage-safe combined model from multiple raw datasets (`main + Bangladesh PPD + Uganda prenatal`):
+
+```bash
+cd webapp/backend
+python scripts/train_model_combined.py --include main,ppd,uganda --out ../model/risk_model_combined.joblib --metrics-out ../model/metrics/risk_metrics_combined.json
+```
+
+This pipeline harmonizes schemas, creates a unified binary target per dataset, splits before balancing, and oversamples only the training split.
 
 Train chat sentiment/risk model (TF-IDF + Logistic Regression):
 

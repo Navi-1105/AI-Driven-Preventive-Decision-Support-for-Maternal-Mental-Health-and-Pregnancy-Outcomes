@@ -1,0 +1,25 @@
+{
+  "feature_set": "demographic+obstetric+socioeconomic history only",
+  "n_features": 14,
+  "models": {
+    "rf_bal": {
+      "train_auc": 1.0,
+      "test_auc": 0.9717,
+      "cv_auc_mean": 0.9681,
+      "cv_auc_std": 0.0034
+    },
+    "xgb_bal": {
+      "train_auc": 0.8067,
+      "test_auc": 0.684,
+      "cv_auc_mean": 0.6766,
+      "cv_auc_std": 0.0082
+    },
+    "lgbm_bal": {
+      "train_auc": 0.9638,
+      "test_auc": 0.8302,
+      "cv_auc_mean": 0.8078,
+      "cv_auc_std": 0.0077
+    }
+  },
+  "note": "No oversampling before split; class weighting used."
+}

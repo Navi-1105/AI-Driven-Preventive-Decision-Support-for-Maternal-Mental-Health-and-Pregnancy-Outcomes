@@ -1,0 +1,48 @@
+{
+  "feature_set": [
+    "Age",
+    "Gestational Age",
+    "Number of sons ",
+    "Number of daughters",
+    "Total Number of Children",
+    "Gravida",
+    "Female Education",
+    "Husband Education",
+    "Working Status",
+    "Physical Health ",
+    "Previous Miscarriage",
+    "Sufficient Money for Basic Needs",
+    "Family System",
+    "Male Gender Preference"
+  ],
+  "dataset_rows": 14008,
+  "main_model": {
+    "name": "lightgbm_preventive_main",
+    "train_auc": 0.9638,
+    "cv_auc_mean": 0.8078,
+    "cv_auc_std": 0.0077,
+    "test_metrics": {
+      "accuracy": 0.7616,
+      "precision": 0.8388,
+      "recall": 0.7825,
+      "f1": 0.8097,
+      "roc_auc": 0.8302,
+      "brier_score": 0.1788
+    }
+  },
+  "sensitivity_model": {
+    "name": "random_forest_sensitivity",
+    "train_auc": 1.0,
+    "cv_auc_mean": 0.9681,
+    "cv_auc_std": 0.0034,
+    "test_metrics": {
+      "accuracy": 0.9261,
+      "precision": 0.9219,
+      "recall": 0.9681,
+      "f1": 0.9444,
+      "roc_auc": 0.9717,
+      "brier_score": 0.073
+    }
+  },
+  "governance_note": "Main publication model is LightGBM on strict preventive history features. Random Forest retained as sensitivity analysis only."
+}

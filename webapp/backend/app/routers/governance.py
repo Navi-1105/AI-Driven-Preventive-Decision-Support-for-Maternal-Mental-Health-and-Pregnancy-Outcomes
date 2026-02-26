@@ -154,6 +154,24 @@ async def fairness_auto(
             ]
         )
 
+    queued_retrain_id = None
+    if result.bias_detected:
+        retrain_doc = {
+            "requested_by": user["username"],
+            "min_feedback_samples": 50,
+            "current_model": Path(settings.model_path).stem,
+            "status": "queued_auto_mitigation",
+            "trigger": "fairness_auto",
+            "protected_attribute": payload.protected_attribute,
+            "operating_threshold": payload.positive_threshold,
+            "disparate_impact": result.disparate_impact,
+        }
+        retrain_res = await db.retrain_requests.insert_one(retrain_doc)
+        queued_retrain_id = str(retrain_res.inserted_id)
+        result.mitigation_report.append(
+            f"Auto-mitigation queued: retrain request id={queued_retrain_id}."
+        )
+
     await db.audit_logs.insert_one(
         {
             "event": "fairness_auto_run",
@@ -161,6 +179,7 @@ async def fairness_auto(
             "positive_threshold": payload.positive_threshold,
             "eval_thresholds": valid_thresholds,
             "di_by_threshold": di_by_threshold,
+            "queued_retrain_id": queued_retrain_id,
             "result": result.model_dump(),
             "run_by": user["username"],
         }

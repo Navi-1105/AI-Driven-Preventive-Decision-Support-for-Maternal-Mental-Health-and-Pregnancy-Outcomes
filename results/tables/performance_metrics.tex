@@ -1,18 +1,21 @@
 \begin{table}[h]
 \centering
-\caption{Model Performance Metrics}
+\caption{Model Performance Metrics (Leakage-Safe XGBoost)}
 \label{tab:performance_metrics}
 \begin{tabular}{lcccc}
 \hline
 Class & Precision & Recall & F1-Score & Support \\
 \hline
-Depressed & 0.974 & 0.979 & 0.976 & 3125 \\
-Not & 0.963 & 0.954 & 0.958 & 1806 \\
+Depressed & 0.869 & 0.791 & 0.828 & 1815 \\
+Not & 0.670 & 0.780 & 0.720 & 985 \\
 \hline
-\textbf{Weighted Avg} & 0.970 & 0.970 & 0.970 & - \\
+\textbf{Weighted Avg} & 0.799 & 0.787 & 0.790 & - \\
 \hline
-\textbf{Accuracy} & \multicolumn{4}{c}{0.970} \\
-\textbf{ROC-AUC} & \multicolumn{4}{c}{0.993} \\
+\textbf{Accuracy} & \multicolumn{4}{c}{0.787} \\
+\textbf{ROC-AUC} & \multicolumn{4}{c}{0.871} \\
+\textbf{PR-AUC} & \multicolumn{4}{c}{0.776} \\
+\textbf{Brier Score} & \multicolumn{4}{c}{0.1432} \\
+\textbf{CV ROC-AUC} & \multicolumn{4}{c}{0.8663 $\pm$ 0.0073} \\
 \hline
 \end{tabular}
 \end{table}

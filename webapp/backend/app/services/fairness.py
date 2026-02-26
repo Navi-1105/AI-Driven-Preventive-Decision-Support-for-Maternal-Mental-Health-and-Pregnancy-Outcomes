@@ -15,7 +15,7 @@ def compute_disparate_impact(req: FairnessRequest) -> FairnessResponse:
 
     di = min(rates) / max(rates)
     bias_detected = di < 0.8
-    mitigation_strategy = "reweighting" if bias_detected else "monitor_only"
+    mitigation_strategy = "reweight_and_retrain" if bias_detected else "monitor_only"
     mitigation_report = (
         [
             "Bias threshold crossed (DI < 0.8).",

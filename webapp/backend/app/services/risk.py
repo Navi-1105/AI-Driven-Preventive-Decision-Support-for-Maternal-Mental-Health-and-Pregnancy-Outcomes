@@ -14,39 +14,63 @@ def _model_predict(input_data: RiskInput) -> Tuple[float, Dict[str, float], str]
 
     features = payload["features"]
     pipeline = payload["pipeline"]
-    classes = payload["label_classes"]
+    classes = payload.get("label_classes", [])
 
     mapped = map_inputs_to_features(input_data, features)
     X = pd.DataFrame([[mapped[f] for f in features]], columns=features)
     proba = pipeline.predict_proba(X)[0]
 
-    try:
-        depressed_idx = classes.index("Depressed")
-    except ValueError:
-        depressed_idx = int(np.argmax(proba))
+    depressed_idx = 1 if len(proba) > 1 else int(np.argmax(proba))
+    if classes:
+        cls_lower = [str(c).strip().lower() for c in classes]
+        if "depressed" in cls_lower:
+            depressed_idx = cls_lower.index("depressed")
+        elif "1" in cls_lower:
+            depressed_idx = cls_lower.index("1")
 
     risk_percent = float(proba[depressed_idx] * 100.0)
 
-    # Use feature importances as a proxy for contributions (placeholder for SHAP)
-    rf = pipeline.named_steps.get("rf")
-    importances = getattr(rf, "feature_importances_", np.ones(len(features)))
+    estimator = None
+    for step_name in ("xgb", "rf"):
+        if step_name in pipeline.named_steps:
+            estimator = pipeline.named_steps[step_name]
+            break
+    if estimator is None:
+        estimator = pipeline.steps[-1][1]
+
+    importances = getattr(estimator, "feature_importances_", np.ones(len(features)))
+    if len(importances) != len(features):
+        importances = np.ones(len(features))
     contribution_raw = {
         feature: float(importances[i] * abs(mapped[feature]))
         for i, feature in enumerate(features)
     }
-    return risk_percent, contribution_raw, "Random Forest prediction computed."
+    model_name = estimator.__class__.__name__
+    return risk_percent, contribution_raw, f"{model_name} prediction computed."
+
+
+def _crisis_override(input_data: RiskInput) -> tuple[bool, str]:
+    if input_data.self_harm > 0:
+        return True, "self-harm indicator"
+    if (
+        input_data.behavioral.sleep_quality <= 2
+        and input_data.behavioral.appetite <= 2
+        and input_data.behavioral.fatigue >= 9
+    ):
+        return True, "critical behavioral threshold cluster"
+    return False, ""
 
 
 def compute_risk(input_data: RiskInput) -> Tuple[RiskScore, Dict[str, float]]:
-    # Hard-coded crisis override
-    if input_data.self_harm > 0:
+    crisis_mode, reason = _crisis_override(input_data)
+    if crisis_mode:
         return (
             RiskScore(
                 risk_percent=100.0,
                 crisis_mode=True,
                 message=(
                     "Crisis mode activated: immediate support is required. "
-                    "Please contact local emergency services and a clinician." 
+                    f"Trigger: {reason}. Please contact local emergency services and a clinician."
                 ),
             ),
             {"self_harm": 100.0},

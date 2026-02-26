@@ -26,11 +26,6 @@ def explain_with_shap(input_data: RiskInput) -> List[XAIContribution] | None:
     if payload is None:
         return None
 
-    try:
-        import shap  # type: ignore
-    except Exception:
-        return None
-
     features = payload["features"]
     pipeline = payload["pipeline"]
     classes = payload.get("label_classes", [])
@@ -38,20 +33,69 @@ def explain_with_shap(input_data: RiskInput) -> List[XAIContribution] | None:
     mapped = map_inputs_to_features(input_data, features)
     X = pd.DataFrame([[mapped[f] for f in features]], columns=features)
 
-    model = pipeline.named_steps.get("rf", pipeline)
-    explainer = shap.TreeExplainer(model)
-    shap_values = explainer.shap_values(X)
+    estimator = None
+    for step_name in ("xgb", "rf"):
+        if step_name in pipeline.named_steps:
+            estimator = pipeline.named_steps[step_name]
+            break
+    if estimator is None:
+        estimator = pipeline.steps[-1][1]
+
+    if len(pipeline.steps) > 1:
+        preprocess = pipeline[:-1]
+        X_model = preprocess.transform(X)
+    else:
+        X_model = X.values
+
+    # Prefer native XGBoost SHAP contributions when available.
+    if "xgb" in pipeline.named_steps:
+        try:
+            import xgboost as xgb  # type: ignore
+
+            booster = pipeline.named_steps["xgb"].get_booster()
+            dmat = xgb.DMatrix(X_model, feature_names=features)
+            contribs = booster.predict(dmat, pred_contribs=True)
+            values = np.asarray(contribs)[0, : len(features)]
+            contributions = {feature: float(abs(values[i])) for i, feature in enumerate(features)}
+            total = sum(contributions.values())
+            if total <= 0:
+                return [XAIContribution(feature=f, contribution_percent=0.0) for f in features]
+            return [
+                XAIContribution(feature=f, contribution_percent=round((v / total) * 100.0, 2))
+                for f, v in contributions.items()
+            ]
+        except Exception:
+            pass
+
+    try:
+        import shap  # type: ignore
+    except Exception:
+        return None
+
+    shap_values = None
+    try:
+        explainer = shap.TreeExplainer(estimator)
+        shap_values = explainer.shap_values(X_model)
+    except Exception:
+        try:
+            explainer = shap.Explainer(estimator)
+            explanation = explainer(X_model)
+            shap_values = explanation.values
+        except Exception:
+            return None
+
+    cls_lower = [str(c).strip().lower() for c in classes]
 
     if isinstance(shap_values, list):
-        if classes and "Depressed" in classes:
-            class_index = classes.index("Depressed")
+        if classes and "depressed" in cls_lower:
+            class_index = cls_lower.index("depressed")
         else:
             class_index = 1 if len(shap_values) > 1 else 0
         values = shap_values[class_index][0]
     else:
         arr = np.asarray(shap_values)
-        if classes and "Depressed" in classes:
-            class_index = classes.index("Depressed")
+        if classes and "depressed" in cls_lower:
+            class_index = cls_lower.index("depressed")
         else:
             class_index = 1
 

@@ -13,9 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import shap
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.impute import SimpleImputer
-from sklearn.pipeline import Pipeline
+import xgboost as xgb
 
 DEFAULT_FEATURES = [
     "Age",
@@ -33,6 +31,68 @@ except OSError:
     plt.style.use("seaborn-paper")  # Fallback for older matplotlib versions
 
 
+def _coerce_feature_frame(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    money_col = "Sufficient Money for Basic Needs"
+    if money_col in out.columns:
+        raw = out[money_col].astype(str).str.strip().str.lower()
+        mapped = raw.map({"yes": 1, "no": 0})
+        numeric_money = pd.to_numeric(out[money_col], errors="coerce")
+        out.loc[:, money_col] = mapped.where(mapped.notna(), numeric_money)
+    for col in DEFAULT_FEATURES:
+        out.loc[:, col] = pd.to_numeric(out[col], errors="coerce")
+    return out
+
+
+def _get_estimator_and_matrix(model_payload, X_df: pd.DataFrame):
+    pipeline = model_payload["pipeline"]
+    estimator = None
+    for step_name in ("xgb", "rf"):
+        if step_name in pipeline.named_steps:
+            estimator = pipeline.named_steps[step_name]
+            break
+    if estimator is None:
+        estimator = pipeline.steps[-1][1]
+
+    if len(pipeline.steps) > 1:
+        preprocess = pipeline[:-1]
+        X_model = preprocess.transform(X_df)
+    else:
+        X_model = X_df.values
+    return estimator, X_model
+
+
+def _compute_shap_matrix(model_payload, X_df: pd.DataFrame) -> np.ndarray:
+    features = model_payload["features"]
+    estimator, X_model = _get_estimator_and_matrix(model_payload, X_df)
+
+    # Prefer native XGBoost SHAP contributions when available.
+    if estimator.__class__.__name__.lower().startswith("xgb"):
+        booster = estimator.get_booster()
+        dmat = xgb.DMatrix(X_model, feature_names=features)
+        contribs = booster.predict(dmat, pred_contribs=True)
+        return np.asarray(contribs)[:, : len(features)]
+
+    try:
+        explainer = shap.TreeExplainer(estimator)
+        shap_values = explainer.shap_values(X_model)
+    except Exception:
+        explainer = shap.Explainer(estimator)
+        shap_values = explainer(X_model).values
+
+    if isinstance(shap_values, list):
+        class_idx = 1 if len(shap_values) > 1 else 0
+        shap_values_class = np.array(shap_values[class_idx])
+    else:
+        shap_values_class = np.array(shap_values)
+
+    if shap_values_class.ndim == 3:
+        shap_values_class = shap_values_class[:, :, 0]
+    elif shap_values_class.ndim > 2:
+        shap_values_class = shap_values_class.reshape(shap_values_class.shape[0], -1)
+    return shap_values_class
+
+
 def load_model(model_path: Path):
     """Load trained model."""
     payload = joblib.load(model_path)
@@ -41,42 +101,12 @@ def load_model(model_path: Path):
 
 def plot_global_feature_importance(model_payload, X_train, output_path: Path):
     """Generate global feature importance plot using SHAP."""
-    pipeline = model_payload["pipeline"]
-    model = pipeline.named_steps.get("rf", pipeline)
     features = model_payload["features"]
-
-    # Create SHAP explainer
-    explainer = shap.TreeExplainer(model)
     
     # Calculate SHAP values for a sample of training data
     sample_size = min(100, len(X_train))
     X_sample = X_train.sample(n=sample_size, random_state=42) if isinstance(X_train, pd.DataFrame) else X_train[:sample_size]
-    
-    shap_values = explainer.shap_values(X_sample)
-
-    # Debug: Print shape of SHAP values
-    print(f"   SHAP values type: {type(shap_values)}")
-    if isinstance(shap_values, list):
-        print(f"   SHAP values list length: {len(shap_values)}")
-        for i, sv in enumerate(shap_values):
-            print(f"   SHAP values[{i}] shape: {np.array(sv).shape}")
-    else:
-        print(f"   SHAP values shape: {shap_values.shape}")
-
-    # Handle multi-class SHAP values
-    if isinstance(shap_values, list):
-        # Use the "Depressed" class (usually index 1)
-        class_idx = 1 if len(shap_values) > 1 else 0
-        shap_values_class = np.array(shap_values[class_idx])
-    else:
-        shap_values_class = shap_values
-
-    # Ensure we have 2D array (samples x features)
-    if shap_values_class.ndim == 3:
-        # Take first class if 3D
-        shap_values_class = shap_values_class[:, :, 0]
-    elif shap_values_class.ndim > 2:
-        shap_values_class = shap_values_class.reshape(shap_values_class.shape[0], -1)
+    shap_values_class = _compute_shap_matrix(model_payload, X_sample)
 
     # Calculate mean absolute SHAP values for global importance
     mean_shap = np.abs(shap_values_class).mean(axis=0)
@@ -114,27 +144,11 @@ def plot_global_feature_importance(model_payload, X_train, output_path: Path):
 
 def plot_shap_summary(model_payload, X_train, output_path: Path):
     """Generate SHAP summary plot."""
-    pipeline = model_payload["pipeline"]
-    model = pipeline.named_steps.get("rf", pipeline)
     features = model_payload["features"]
 
-    explainer = shap.TreeExplainer(model)
     sample_size = min(100, len(X_train))
     X_sample = X_train.sample(n=sample_size, random_state=42) if isinstance(X_train, pd.DataFrame) else X_train[:sample_size]
-    
-    shap_values = explainer.shap_values(X_sample)
-
-    if isinstance(shap_values, list):
-        class_idx = 1 if len(shap_values) > 1 else 0
-        shap_values_class = np.array(shap_values[class_idx])
-    else:
-        shap_values_class = shap_values
-
-    # Handle 3D array (samples x features x classes)
-    if shap_values_class.ndim == 3:
-        shap_values_class = shap_values_class[:, :, 0]
-    elif shap_values_class.ndim > 2:
-        shap_values_class = shap_values_class.reshape(shap_values_class.shape[0], -1)
+    shap_values_class = _compute_shap_matrix(model_payload, X_sample)
 
     # Create summary plot
     fig = plt.figure(figsize=(10, 8))
@@ -148,26 +162,12 @@ def plot_shap_summary(model_payload, X_train, output_path: Path):
 
 def plot_waterfall_explanation(model_payload, sample_input, output_path: Path):
     """Generate waterfall plot for a single patient explanation."""
-    pipeline = model_payload["pipeline"]
-    model = pipeline.named_steps.get("rf", pipeline)
     features = model_payload["features"]
     classes = model_payload.get("label_classes", [])
 
     # Prepare input
     X_sample = pd.DataFrame([sample_input], columns=features)
-
-    explainer = shap.TreeExplainer(model)
-    shap_values = explainer.shap_values(X_sample)
-
-    # Determine class index
-    if isinstance(shap_values, list):
-        if "Depressed" in classes:
-            class_idx = classes.index("Depressed")
-        else:
-            class_idx = 1 if len(shap_values) > 1 else 0
-        shap_vals = np.array(shap_values[class_idx])[0]
-    else:
-        shap_vals = np.array(shap_values)[0]
+    shap_vals = _compute_shap_matrix(model_payload, X_sample)[0]
 
     # Handle 3D array (1 sample x features x classes)
     if shap_vals.ndim == 2:
@@ -175,17 +175,10 @@ def plot_waterfall_explanation(model_payload, sample_input, output_path: Path):
     elif shap_vals.ndim > 1:
         shap_vals = shap_vals.flatten()
 
-    # Get base value (expected value)
-    base_value = explainer.expected_value
-    if isinstance(base_value, np.ndarray):
-        if "Depressed" in classes:
-            class_idx = classes.index("Depressed")
-        else:
-            class_idx = 0
-        base_value = base_value[class_idx] if len(base_value) > class_idx else base_value[0]
-
-    # Calculate prediction
-    prediction = model.predict_proba(X_sample)[0]
+    # Estimate base value and prediction from the full pipeline.
+    pipeline = model_payload["pipeline"]
+    base_value = 0.0
+    prediction = pipeline.predict_proba(X_sample)[0]
     if len(prediction) > 1:
         if "Depressed" in classes:
             class_idx = classes.index("Depressed")
@@ -248,28 +241,11 @@ def plot_waterfall_explanation(model_payload, sample_input, output_path: Path):
 
 def generate_feature_importance_table(model_payload, X_train, output_path: Path):
     """Generate LaTeX table for feature importance."""
-    pipeline = model_payload["pipeline"]
-    model = pipeline.named_steps.get("rf", pipeline)
     features = model_payload["features"]
 
-    explainer = shap.TreeExplainer(model)
     sample_size = min(100, len(X_train))
     X_sample = X_train.sample(n=sample_size, random_state=42) if isinstance(X_train, pd.DataFrame) else X_train[:sample_size]
-    
-    shap_values = explainer.shap_values(X_sample)
-
-    if isinstance(shap_values, list):
-        class_idx = 1 if len(shap_values) > 1 else 0
-        shap_values_class = shap_values[class_idx]
-    else:
-        shap_values_class = shap_values
-
-    # Handle 3D array (samples x features x classes)
-    shap_values_arr = np.array(shap_values_class)
-    if shap_values_arr.ndim == 3:
-        shap_values_class = shap_values_arr[:, :, 0]
-    elif shap_values_arr.ndim > 2:
-        shap_values_class = shap_values_arr.reshape(shap_values_arr.shape[0], -1)
+    shap_values_class = _compute_shap_matrix(model_payload, X_sample)
     
     # Calculate mean absolute SHAP values
     mean_shap = np.abs(shap_values_class).mean(axis=0)
@@ -317,7 +293,7 @@ def main():
     parser.add_argument(
         "--csv",
         type=Path,
-        default=Path("../../oversampled_data.csv"),
+        default=Path("../../dataset.csv"),
         help="Path to training CSV for SHAP calculations",
     )
     parser.add_argument(
@@ -354,7 +330,9 @@ def main():
     from sklearn.preprocessing import LabelEncoder
 
     df = pd.read_csv(args.csv)
-    df = df[DEFAULT_FEATURES + [model_payload["target"]]].dropna()
+    df = df[DEFAULT_FEATURES + [model_payload["target"]]]
+    df[DEFAULT_FEATURES] = _coerce_feature_frame(df[DEFAULT_FEATURES])
+    df = df.dropna(subset=DEFAULT_FEATURES + [model_payload["target"]])
     X = df[DEFAULT_FEATURES]
     y_raw = df[model_payload["target"]].astype(str).str.strip()
     label_encoder = LabelEncoder()
