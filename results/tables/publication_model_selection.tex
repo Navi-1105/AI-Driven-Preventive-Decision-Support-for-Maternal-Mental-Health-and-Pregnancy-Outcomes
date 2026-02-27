@@ -2,12 +2,15 @@
 \centering
 \caption{Publication Model Selection (Preventive Setting)}
 \label{tab:publication_model_selection}
-\begin{tabular}{lcccccc}
+\begin{tabular}{lccccc}
 \hline
-Model & Train AUC & CV AUC & Test AUC & Recall & Precision & Brier \\
+Model & CV AUC & Test AUC & Recall & Precision & Brier \\
 \hline
-Lightgbm Preventive Main & 0.964 & 0.808 & 0.830 & 0.782 & 0.839 & 0.179 \\
-Random Forest Sensitivity & 1.000 & 0.968 & 0.972 & 0.968 & 0.922 & 0.073 \\
+Logistic Regression Baseline & 0.574 & 0.573 & 0.995 & 0.652 & 0.245 \\
+Lightgbm Preventive Main & 0.552 & 0.559 & 0.707 & 0.678 & 0.253 \\
+Catboost Preventive Model & 0.559 & 0.562 & 0.747 & 0.681 & 0.247 \\
+Random Forest Sensitivity & 0.559 & 0.560 & 0.967 & 0.663 & 0.229 \\
+Lightgbm Screening Assisted & 0.856 & 0.863 & 0.865 & 0.814 & 0.151 \\
 \hline
 \end{tabular}
 \end{table}

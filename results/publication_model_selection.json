@@ -13,49 +13,239 @@
     "Previous Miscarriage",
     "Sufficient Money for Basic Needs",
     "Family System",
-    "Male Gender Preference"
+    "Male Gender Preference",
+    "Current Appereance Acceptance",
+    "Relationship with Mother in-law",
+    "Age_x_Gravida",
+    "Education_Gap",
+    "Children_to_Age",
+    "Miscarriage_x_Gravida",
+    "Money_x_FamilySystem"
   ],
-  "dataset_rows": 14008,
+  "base_feature_set": [
+    "Age",
+    "Gestational Age",
+    "Number of sons ",
+    "Number of daughters",
+    "Total Number of Children",
+    "Gravida",
+    "Female Education",
+    "Husband Education",
+    "Working Status",
+    "Physical Health ",
+    "Previous Miscarriage",
+    "Sufficient Money for Basic Needs",
+    "Family System",
+    "Male Gender Preference",
+    "Current Appereance Acceptance",
+    "Relationship with Mother in-law"
+  ],
+  "engineered_features": [
+    "Age_x_Gravida",
+    "Education_Gap",
+    "Children_to_Age",
+    "Miscarriage_x_Gravida",
+    "Money_x_FamilySystem"
+  ],
+  "screening_assisted_items": [
+    "Thoughts that you would be better off dead, or of hurting yourself",
+    "Poor appetite or overeating",
+    "Trouble falling or staying sleep or sleeping too much",
+    "Moving or speaking so slowly that other people could have Noticed. "
+  ],
+  "dataset_rows": 7008,
+  "deduplication": {
+    "before_rows": 14008,
+    "after_rows": 7008,
+    "dropped_exact_duplicate_rows": 7000,
+    "unique_profiles_after_dedup": 6991,
+    "profile_duplicate_rows_after_dedup": 17
+  },
   "dataset_sha256": "3d2efa3aaea9e4ba3a404c6dbbd4a82a4c832c7cd578de10ff2ae28967062c42",
   "label_definition": "y = (Scalling >= 10).astype(int)",
+  "split_strategy": "train_test_split stratified 80/20 + StratifiedKFold(5) CV",
+  "robustness_checks": {
+    "grouped_cv_strategy": "StratifiedGroupKFold(5) on hashed feature profiles",
+    "grouped_cv_auc_mean": {
+      "main_model": 0.5486,
+      "logistic_regression_baseline": 0.5727,
+      "catboost_model": 0.5577,
+      "sensitivity_model": 0.5571,
+      "screening_assisted_model": 0.857
+    },
+    "grouped_cv_auc_std": {
+      "main_model": 0.0172,
+      "logistic_regression_baseline": 0.0072,
+      "catboost_model": 0.0173,
+      "sensitivity_model": 0.0184,
+      "screening_assisted_model": 0.009
+    },
+    "grouped_holdout_auc": {
+      "main_model": 0.5658,
+      "logistic_regression_baseline": 0.5672,
+      "catboost_model": 0.5517,
+      "sensitivity_model": 0.5603
+    },
+    "screening_assisted_grouped_holdout_auc": 0.8531,
+    "grouped_split_profile_overlap_count": 0,
+    "label_quality_audit": {
+      "positive_rate": 0.648,
+      "positive_count": 4541,
+      "negative_count": 2467,
+      "near_threshold_rows_9_to_11": 2201,
+      "score_min": 1.0,
+      "score_max": 24.0
+    },
+    "temporal_holdout_status": "not_available_no_temporal_column",
+    "temporal_columns_detected": []
+  },
   "main_model": {
     "name": "lightgbm_preventive_main",
-    "train_auc": 0.9638,
-    "cv_auc_mean": 0.8078,
-    "cv_auc_std": 0.0077,
+    "decision_threshold": 0.474,
+    "train_auc": 0.9847,
+    "cv_auc_mean": 0.5519,
+    "cv_auc_std": 0.0111,
     "test_metrics": {
-      "accuracy": 0.7616,
-      "precision": 0.8388,
-      "recall": 0.7825,
-      "f1": 0.8097,
-      "roc_auc": 0.8302,
-      "brier_score": 0.1788
+      "accuracy": 0.5927,
+      "precision": 0.6779,
+      "recall": 0.707,
+      "f1": 0.6922,
+      "roc_auc": 0.5591,
+      "brier_score": 0.2534,
+      "confusion_matrix": [
+        [
+          189,
+          305
+        ],
+        [
+          266,
+          642
+        ]
+      ]
     }
   },
   "main_model_isotonic_calibrated": {
     "name": "lightgbm_preventive_main_isotonic",
     "test_metrics": {
-      "accuracy": 0.7662,
-      "precision": 0.7671,
-      "recall": 0.918,
-      "f1": 0.8358,
-      "roc_auc": 0.8335,
-      "brier_score": 0.1623
+      "accuracy": 0.6562,
+      "precision": 0.6552,
+      "recall": 0.9901,
+      "f1": 0.7886,
+      "roc_auc": 0.5647,
+      "brier_score": 0.2237,
+      "confusion_matrix": [
+        [
+          21,
+          473
+        ],
+        [
+          9,
+          899
+        ]
+      ]
     }
+  },
+  "logistic_regression_baseline": {
+    "name": "logistic_regression_baseline",
+    "decision_threshold": 0.2875,
+    "train_auc": 0.5995,
+    "cv_auc_mean": 0.5739,
+    "cv_auc_std": 0.018,
+    "test_metrics": {
+      "accuracy": 0.6534,
+      "precision": 0.6525,
+      "recall": 0.9945,
+      "f1": 0.788,
+      "roc_auc": 0.5725,
+      "brier_score": 0.2455,
+      "confusion_matrix": [
+        [
+          13,
+          481
+        ],
+        [
+          5,
+          903
+        ]
+      ]
+    }
+  },
+  "catboost_model": {
+    "name": "catboost_preventive_model",
+    "decision_threshold": 0.4539,
+    "train_auc": 0.9448,
+    "cv_auc_mean": 0.5594,
+    "cv_auc_std": 0.0108,
+    "test_metrics": {
+      "accuracy": 0.6098,
+      "precision": 0.6814,
+      "recall": 0.7467,
+      "f1": 0.7126,
+      "roc_auc": 0.5619,
+      "brier_score": 0.2466,
+      "confusion_matrix": [
+        [
+          177,
+          317
+        ],
+        [
+          230,
+          678
+        ]
+      ]
+    }
+  },
+  "screening_assisted_model": {
+    "name": "lightgbm_screening_assisted",
+    "decision_threshold": 0.332,
+    "train_auc": 0.9974,
+    "cv_auc_mean": 0.8556,
+    "cv_auc_std": 0.0065,
+    "test_metrics": {
+      "accuracy": 0.7846,
+      "precision": 0.8143,
+      "recall": 0.8645,
+      "f1": 0.8387,
+      "roc_auc": 0.8629,
+      "brier_score": 0.1506,
+      "confusion_matrix": [
+        [
+          315,
+          179
+        ],
+        [
+          123,
+          785
+        ]
+      ]
+    },
+    "note": "Includes concurrent symptom items and is not preventive-only."
   },
   "sensitivity_model": {
     "name": "random_forest_sensitivity",
+    "decision_threshold": 0.4419,
     "train_auc": 1.0,
-    "cv_auc_mean": 0.9681,
-    "cv_auc_std": 0.0034,
+    "cv_auc_mean": 0.5593,
+    "cv_auc_std": 0.0119,
     "test_metrics": {
-      "accuracy": 0.9261,
-      "precision": 0.9219,
-      "recall": 0.9681,
-      "f1": 0.9444,
-      "roc_auc": 0.9717,
-      "brier_score": 0.073
+      "accuracy": 0.6598,
+      "precision": 0.6626,
+      "recall": 0.967,
+      "f1": 0.7864,
+      "roc_auc": 0.5597,
+      "brier_score": 0.2292,
+      "confusion_matrix": [
+        [
+          47,
+          447
+        ],
+        [
+          30,
+          878
+        ]
+      ]
     }
   },
-  "governance_note": "Main publication model is LightGBM on strict preventive history features. Random Forest retained as sensitivity analysis only."
+  "governance_note": "Main publication model is LightGBM on preventive history+psychosocial features with engineered interactions. Logistic Regression is reported as a linear baseline, CatBoost as an additional tabular benchmark, Random Forest as sensitivity, and a screening-assisted model is reported separately.",
+  "results_note": "Tree-based ensemble models showed substantial training-set fit without proportional validation AUC gains, indicating overfitting risk in preventive-only prediction."
 }
