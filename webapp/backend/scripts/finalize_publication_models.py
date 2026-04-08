@@ -98,6 +98,78 @@ def _best_accuracy_threshold(y_true: np.ndarray, y_proba: np.ndarray) -> float:
     return round(best_t, 4)
 
 
+def _bootstrap_auc_ci(
+    y_true: np.ndarray, y_proba: np.ndarray, n_bootstrap: int = 400, alpha: float = 0.95
+) -> dict:
+    rng = np.random.RandomState(RANDOM_STATE)
+    n = len(y_true)
+    scores = []
+    for _ in range(n_bootstrap):
+        idx = rng.randint(0, n, n)
+        y_b = y_true[idx]
+        if len(np.unique(y_b)) < 2:
+            continue
+        scores.append(roc_auc_score(y_b, y_proba[idx]))
+    if not scores:
+        auc = float(roc_auc_score(y_true, y_proba))
+        return {"roc_auc": round(auc, 4), "ci95_lower": round(auc, 4), "ci95_upper": round(auc, 4)}
+    lower = np.percentile(scores, (1 - alpha) / 2 * 100)
+    upper = np.percentile(scores, (1 + alpha) / 2 * 100)
+    auc = float(roc_auc_score(y_true, y_proba))
+    return {
+        "roc_auc": round(auc, 4),
+        "ci95_lower": round(float(lower), 4),
+        "ci95_upper": round(float(upper), 4),
+    }
+
+
+def _nested_cv_threshold_metrics(pipe: Pipeline, X: pd.DataFrame, y: np.ndarray) -> dict:
+    outer = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
+    rows = []
+    for fold_idx, (tr_idx, te_idx) in enumerate(outer.split(X, y), start=1):
+        X_tr, X_te = X.iloc[tr_idx], X.iloc[te_idx]
+        y_tr, y_te = y[tr_idx], y[te_idx]
+        inner = StratifiedKFold(n_splits=3, shuffle=True, random_state=RANDOM_STATE + fold_idx)
+
+        oof = np.zeros(len(y_tr), dtype=float)
+        for i_tr, i_val in inner.split(X_tr, y_tr):
+            m_inner = clone(pipe)
+            m_inner.fit(X_tr.iloc[i_tr], y_tr[i_tr])
+            oof[i_val] = m_inner.predict_proba(X_tr.iloc[i_val])[:, 1]
+
+        t = _best_accuracy_threshold(y_tr, oof)
+        m_outer = clone(pipe)
+        m_outer.fit(X_tr, y_tr)
+        p_te = m_outer.predict_proba(X_te)[:, 1]
+        mt = _metrics(y_te, p_te, threshold=t)
+        rows.append(
+            {
+                "threshold": t,
+                "accuracy": mt["accuracy"],
+                "precision": mt["precision"],
+                "recall": mt["recall"],
+                "f1": mt["f1"],
+                "roc_auc": mt["roc_auc"],
+                "brier_score": mt["brier_score"],
+            }
+        )
+
+    df_rows = pd.DataFrame(rows)
+    return {
+        "outer_folds": 5,
+        "threshold_mean": round(float(df_rows["threshold"].mean()), 4),
+        "threshold_std": round(float(df_rows["threshold"].std(ddof=0)), 4),
+        "accuracy_mean": round(float(df_rows["accuracy"].mean()), 4),
+        "accuracy_std": round(float(df_rows["accuracy"].std(ddof=0)), 4),
+        "precision_mean": round(float(df_rows["precision"].mean()), 4),
+        "recall_mean": round(float(df_rows["recall"].mean()), 4),
+        "f1_mean": round(float(df_rows["f1"].mean()), 4),
+        "roc_auc_mean": round(float(df_rows["roc_auc"].mean()), 4),
+        "roc_auc_std": round(float(df_rows["roc_auc"].std(ddof=0)), 4),
+        "brier_mean": round(float(df_rows["brier_score"].mean()), 4),
+    }
+
+
 def _sha256sum(file_path: Path) -> str:
     h = hashlib.sha256()
     with file_path.open("rb") as f:
@@ -311,6 +383,34 @@ def run(csv_path: Path, output_dir: Path, model_dir: Path):
     lr_cv = cross_val_score(lr_pipe, X, y, cv=cv, scoring="roc_auc")
     cat_cv = cross_val_score(cat_pipe, X, y, cv=cv, scoring="roc_auc")
     screening_cv = cross_val_score(screening_pipe, X_screening, y, cv=cv, scoring="roc_auc")
+    nested_cv_logistic = _nested_cv_threshold_metrics(lr_pipe, X, y)
+    # Sensitivity: remove near-threshold label-noise band (scores 9-11) for training/eval.
+    score_all = pd.to_numeric(df[SCORE_COL], errors="coerce")
+    hc_mask = (score_all <= 8) | (score_all >= 12)
+    X_hc = X.loc[hc_mask]
+    y_hc = y[hc_mask.to_numpy()]
+    X_hc_train, X_hc_test, y_hc_train, y_hc_test = train_test_split(
+        X_hc, y_hc, test_size=0.2, random_state=RANDOM_STATE, stratify=y_hc
+    )
+    pre_hc = _build_preprocessor(X_hc_train, scale_numeric=True)
+    logistic_hc = Pipeline(
+        [
+            ("preprocess", pre_hc),
+            (
+                "model",
+                LogisticRegression(
+                    class_weight="balanced",
+                    max_iter=5000,
+                    solver="liblinear",
+                    random_state=RANDOM_STATE,
+                ),
+            ),
+        ]
+    )
+    logistic_hc.fit(X_hc_train, y_hc_train)
+    p_hc_test = logistic_hc.predict_proba(X_hc_test)[:, 1]
+    p_hc_fulltest = logistic_hc.predict_proba(X_test)[:, 1]
+    hc_cv = cross_val_score(logistic_hc, X_hc, y_hc, cv=cv, scoring="roc_auc")
     groups = pd.util.hash_pandas_object(X.astype(str), index=False).to_numpy()
     group_cv = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
     main_cv_group = cross_val_score(main_pipe, X, y, cv=group_cv, groups=groups, scoring="roc_auc")
@@ -340,6 +440,13 @@ def run(csv_path: Path, output_dir: Path, model_dir: Path):
         float(roc_auc_score(y[sg_test_idx], screening_holdout_model.predict_proba(X_screening.iloc[sg_test_idx])[:, 1])),
         4,
     )
+    auc_ci_test = {
+        "main_model": _bootstrap_auc_ci(y_test, p_main_te),
+        "logistic_regression_baseline": _bootstrap_auc_ci(y_test, p_lr_te),
+        "catboost_model": _bootstrap_auc_ci(y_test, p_cat_te),
+        "sensitivity_model": _bootstrap_auc_ci(y_test, p_rf_te),
+        "screening_assisted_model": _bootstrap_auc_ci(y_test, p_screen_te),
+    }
 
     payload = {
         "feature_set": model_features,
@@ -390,7 +497,9 @@ def run(csv_path: Path, output_dir: Path, model_dir: Path):
                 "not_available_no_temporal_column" if not temporal_columns else "available"
             ),
             "temporal_columns_detected": temporal_columns,
+            "nested_cv_threshold_logistic_preventive": nested_cv_logistic,
         },
+        "auc_confidence_intervals_test": auc_ci_test,
         "main_model": {
             "name": "lightgbm_preventive_main",
             "decision_threshold": t_main,
@@ -446,6 +555,25 @@ def run(csv_path: Path, output_dir: Path, model_dir: Path):
             "Tree-based ensemble models showed substantial training-set fit without proportional "
             "validation AUC gains, indicating overfitting risk in preventive-only prediction."
         ),
+        "deployment_framing": (
+            "Preventive model outputs should be used as early triage support. A separate "
+            "screening-assisted model can be used as a second-stage confirmation workflow."
+        ),
+        "label_noise_sensitivity": {
+            "strategy": "Exclude near-threshold scores 9-11 for training/evaluation.",
+            "high_confidence_rows": int(len(X_hc)),
+            "high_confidence_positive_rate": round(float(np.mean(y_hc)), 4),
+            "logistic_high_confidence_cv_auc_mean": round(float(np.mean(hc_cv)), 4),
+            "logistic_high_confidence_cv_auc_std": round(float(np.std(hc_cv)), 4),
+            "logistic_high_confidence_test_auc": round(float(roc_auc_score(y_hc_test, p_hc_test)), 4),
+            "logistic_trained_high_confidence_tested_on_full_test_auc": round(
+                float(roc_auc_score(y_test, p_hc_fulltest)), 4
+            ),
+            "recommended_interpretation": (
+                "Treat this as a boundary-ambiguity sensitivity analysis; improvement indicates "
+                "label-noise impact near the clinical threshold."
+            ),
+        },
     }
 
     output_dir.mkdir(parents=True, exist_ok=True)

@@ -33,6 +33,11 @@ async def root():
     return {"status": "ok", "app": settings.app_name}
 
 
+@app.get("/api/health")
+async def health():
+    return {"status": "ok", "app": settings.app_name}
+
+
 app.include_router(clinical_router)
 app.include_router(auth_router)
 app.include_router(governance_router)

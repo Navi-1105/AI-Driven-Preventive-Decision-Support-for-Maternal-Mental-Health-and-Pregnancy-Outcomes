@@ -1,18 +1,19 @@
 \begin{table}[h]
 \centering
-\caption{Model Performance Metrics}
+\caption{Leakage-Safe Combined Model Performance (IEEE format)}
 \label{tab:performance_metrics}
-\begin{tabular}{lcccc}
+\begin{tabular}{lc}
 \hline
-Class & Precision & Recall & F1-Score & Support \\
+Metric & Value \\
 \hline
-Depressed & 0.974 & 0.979 & 0.976 & 3125 \\
-Not & 0.963 & 0.954 & 0.958 & 1806 \\
-\hline
-\textbf{Weighted Avg} & 0.970 & 0.970 & 0.970 & - \\
-\hline
-\textbf{Accuracy} & \multicolumn{4}{c}{0.970} \\
-\textbf{ROC-AUC} & \multicolumn{4}{c}{0.993} \\
+Accuracy & 0.8076 \\
+ROC-AUC & 0.8857 \\
+PR-AUC & 0.8530 \\
+Brier Score & 0.1377 \\
+Precision (Weighted) & 0.8067 \\
+Recall (Weighted) & 0.8076 \\
+F1 (Weighted) & 0.8067 \\
+Decision Threshold & 0.540 \\
 \hline
 \end{tabular}
 \end{table}

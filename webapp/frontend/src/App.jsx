@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import "./styles.css";
 import UnifiedWorkspace from "./components/UnifiedWorkspace";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
+const API_BASE = import.meta.env.VITE_API_BASE || "";
 const STORAGE_KEYS = {
   token: "ppds_token",
   role: "ppds_role",
@@ -171,7 +171,7 @@ export default function App() {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 2500);
       try {
-        const response = await fetch(`${API_BASE}/`, { signal: controller.signal });
+        const response = await fetch(`${API_BASE}/api/health`, { signal: controller.signal });
         if (!response.ok) {
           throw new Error(`Health check failed (${response.status})`);
         }
@@ -180,7 +180,7 @@ export default function App() {
       } catch {
         setBackendHealth({
           status: "offline",
-          message: `Backend offline at ${API_BASE}. Start backend or set VITE_API_BASE.`
+          message: `Backend offline at ${API_BASE || "/api"}. Start backend or set VITE_API_BASE.`
         });
       } finally {
         clearTimeout(timeout);

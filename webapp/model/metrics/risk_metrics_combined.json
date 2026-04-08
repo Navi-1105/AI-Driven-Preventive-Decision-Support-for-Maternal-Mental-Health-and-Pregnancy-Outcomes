@@ -1,51 +1,92 @@
 {
-  "accuracy": 0.8195,
-  "roc_auc": 0.9021,
-  "precision_weighted": 0.8193,
-  "recall_weighted": 0.8195,
-  "f1_weighted": 0.8194,
+  "accuracy": 0.837,
+  "balanced_accuracy": 0.8307,
+  "roc_auc": 0.911,
+  "precision_weighted": 0.8371,
+  "recall_weighted": 0.837,
+  "f1_weighted": 0.8361,
   "classification_report": {
     "0": {
-      "precision": 0.8366910866910867,
-      "recall": 0.8413136893799877,
-      "f1-score": 0.8389960208142027,
+      "precision": 0.8346867749419954,
+      "recall": 0.8833640270104358,
+      "f1-score": 0.8583358186698479,
       "support": 3258.0
     },
     "1": {
-      "precision": 0.7973343786750294,
-      "recall": 0.7917477617750097,
-      "f1-score": 0.79453125,
+      "precision": 0.8402690205968895,
+      "recall": 0.7781237835733749,
+      "f1-score": 0.8080032336297494,
       "support": 2569.0
     },
-    "accuracy": 0.8194611292260168,
+    "accuracy": 0.8369658486356616,
     "macro avg": {
-      "precision": 0.8170127326830581,
-      "recall": 0.8165307255774987,
-      "f1-score": 0.8167636354071013,
+      "precision": 0.8374778977694424,
+      "recall": 0.8307439052919053,
+      "f1-score": 0.8331695261497987,
       "support": 5827.0
     },
     "weighted avg": {
-      "precision": 0.8193395536735388,
-      "recall": 0.8194611292260168,
-      "f1-score": 0.8193924518727772,
+      "precision": 0.8371478679722721,
+      "recall": 0.8369658486356616,
+      "f1-score": 0.8361452556068628,
       "support": 5827.0
     }
   },
   "confusion_matrix": [
     [
-      2741,
-      517
+      2878,
+      380
     ],
     [
-      535,
-      2034
+      570,
+      1999
     ]
   ],
+  "tuning": {
+    "enabled": true,
+    "n_iter": 32,
+    "cv_folds": 4,
+    "scoring": "f1_weighted",
+    "best_cv_score": 0.8184,
+    "best_params": {
+      "xgb__subsample": 0.95,
+      "xgb__reg_lambda": 8.0,
+      "xgb__reg_alpha": 1.0,
+      "xgb__n_estimators": 700,
+      "xgb__min_child_weight": 7,
+      "xgb__max_depth": 6,
+      "xgb__learning_rate": 0.08,
+      "xgb__gamma": 0.1,
+      "xgb__colsample_bytree": 0.7
+    }
+  },
+  "threshold_optimization": {
+    "enabled": true,
+    "default_threshold": 0.5,
+    "default": {
+      "accuracy": 0.8272,
+      "f1_weighted": 0.8275
+    },
+    "selected": {
+      "threshold": 0.585,
+      "accuracy": 0.837,
+      "balanced_accuracy": 0.8307,
+      "precision": 0.8403,
+      "recall": 0.7781,
+      "f1": 0.808,
+      "f1_weighted": 0.8361
+    },
+    "gain_vs_default": {
+      "accuracy": 0.0098,
+      "f1_weighted": 0.0086
+    }
+  },
   "reproducibility": {
     "random_state": 42,
     "test_size": 0.2,
     "train_size": 0.8,
-    "oversample_train_only": true,
+    "oversample_train_only": false,
+    "scale_pos_weight": 1.2678,
     "features": [
       "age",
       "gestational_weeks",
@@ -68,9 +109,13 @@
       "0": 16287,
       "1": 12846
     },
+    "class_balance_train_before_balancing": {
+      "0": 13029,
+      "1": 10277
+    },
     "class_balance_train_after_oversample": {
-      "1": 13029,
-      "0": 13029
+      "0": 13029,
+      "1": 10277
     },
     "source_counts": {
       "uganda": 14325,
