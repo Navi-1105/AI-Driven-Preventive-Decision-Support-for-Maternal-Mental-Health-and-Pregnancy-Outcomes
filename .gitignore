@@ -38,6 +38,7 @@ Thumbs.db
 # Environment variables
 .env
 .env.local
+.local_auth_users.json
 
 # Logs
 *.log

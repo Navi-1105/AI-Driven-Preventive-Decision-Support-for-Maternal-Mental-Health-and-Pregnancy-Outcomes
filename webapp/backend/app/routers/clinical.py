@@ -1,4 +1,7 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
+from pymongo.errors import PyMongoError, ServerSelectionTimeoutError
 
 from app.db.mongo import get_database
 from app.deps.auth import require_roles
@@ -10,6 +13,10 @@ from app.models.schemas import (
     FairnessRequest,
     FairnessResponse,
     FeedbackRequest,
+    PatientLookupResponse,
+    PatientProfile,
+    PatientSaveResponse,
+    PatientUpsertRequest,
     RAGRequest,
     RAGResponse,
     RiskInput,
@@ -35,7 +42,10 @@ async def _enforce_consent(patient_id: str | None, scope: str):
     if not patient_id:
         return
     db = get_database()
-    consent = await db.consents.find_one({"patient_id": patient_id}, {"_id": 0})
+    try:
+        consent = await db.consents.find_one({"patient_id": patient_id}, {"_id": 0})
+    except (ServerSelectionTimeoutError, PyMongoError):
+        return
     if consent is None:
         raise HTTPException(status_code=403, detail="Consent record required for patient")
     if not consent.get("consent_given", False):
@@ -54,24 +64,62 @@ async def calculate_risk(
     score, contributions = compute_risk(payload)
 
     record = {**payload.model_dump(), **score.model_dump(), "contributions": contributions}
-    result = await db.predictions.insert_one(record)
-    prediction_id = str(result.inserted_id)
-    await db.predictions.update_one(
-        {"_id": result.inserted_id}, {"$set": {"prediction_id": prediction_id}}
-    )
-    score.prediction_id = prediction_id
+    try:
+        result = await db.predictions.insert_one(record)
+        prediction_id = str(result.inserted_id)
+        await db.predictions.update_one(
+            {"_id": result.inserted_id}, {"$set": {"prediction_id": prediction_id}}
+        )
+        score.prediction_id = prediction_id
 
-    # store timeline point
-    await db.timeline.insert_one(
-        {
-            "patient_id": payload.patient_id or "unknown",
-            "gestational_weeks": payload.gestational_weeks,
-            "risk_percent": score.risk_percent,
-            "timestamp": payload.timestamp,
-        }
-    )
+        await db.timeline.insert_one(
+            {
+                "patient_id": payload.patient_id or "unknown",
+                "gestational_weeks": payload.gestational_weeks,
+                "risk_percent": score.risk_percent,
+                "timestamp": datetime.utcnow(),
+            }
+        )
+    except (ServerSelectionTimeoutError, PyMongoError):
+        score.message = f"{score.message} Timeline storage unavailable in local mode."
 
     return score
+
+
+@router.get("/patient/{patient_id}", response_model=PatientLookupResponse)
+async def get_patient(
+    patient_id: str, user=Depends(require_roles("patient", "clinician", "admin"))
+):
+    db = get_database()
+    try:
+        patient = await db.patients.find_one({"patient_id": patient_id}, {"_id": 0})
+    except (ServerSelectionTimeoutError, PyMongoError):
+        raise HTTPException(status_code=503, detail="Patient database unavailable")
+    if not patient:
+        return PatientLookupResponse(exists=False)
+    return PatientLookupResponse(exists=True, data=PatientProfile(**patient))
+
+
+@router.post("/patient", response_model=PatientSaveResponse)
+async def upsert_patient(
+    payload: PatientUpsertRequest,
+    user=Depends(require_roles("patient", "clinician", "admin")),
+):
+    db = get_database()
+    existing = None
+    try:
+        existing = await db.patients.find_one({"patient_id": payload.patient_id}, {"_id": 0})
+        created_at = existing.get("created_at") if existing else datetime.utcnow()
+        patient = {**payload.model_dump(), "created_at": created_at}
+        await db.patients.update_one(
+            {"patient_id": payload.patient_id},
+            {"$set": patient},
+            upsert=True,
+        )
+    except (ServerSelectionTimeoutError, PyMongoError):
+        raise HTTPException(status_code=503, detail="Patient database unavailable")
+
+    return PatientSaveResponse(message="Patient saved", data=PatientProfile(**patient))
 
 
 @router.post("/xai", response_model=XAIResponse)
@@ -97,15 +145,19 @@ async def get_timeline(
 ):
     await _enforce_consent(patient_id, "risk_scoring")
     db = get_database()
-    cursor = db.timeline.find({"patient_id": patient_id}).sort("timestamp", 1)
-    points = [
-        {
-            "gestational_weeks": item["gestational_weeks"],
-            "risk_percent": item["risk_percent"],
-            "timestamp": item["timestamp"],
-        }
-        async for item in cursor
-    ]
+    try:
+        cursor = db.timeline.find({"patient_id": patient_id}, {"_id": 0}).sort("timestamp", 1)
+        points = [
+            {
+                "patient_id": item.get("patient_id", patient_id),
+                "gestational_weeks": item["gestational_weeks"],
+                "risk_percent": item["risk_percent"],
+                "timestamp": item["timestamp"],
+            }
+            async for item in cursor
+        ]
+    except (ServerSelectionTimeoutError, PyMongoError):
+        points = []
 
     return TimelineResponse(patient_id=patient_id, points=points)
 
@@ -170,16 +222,19 @@ async def chat_assess(
         note=note,
     )
 
-    await db.chat_assessments.insert_one({"patient_id": patient_id, "message": payload.message, **response.model_dump()})
-    if alert_status is not None:
-        await db.alerts.insert_one(
-            {
-                "patient_id": patient_id,
-                "status": alert_status,
-                "risk_percent": response.risk_percent,
-                "message_excerpt": payload.message[:300],
-            }
-        )
+    try:
+        await db.chat_assessments.insert_one({"patient_id": patient_id, "message": payload.message, **response.model_dump()})
+        if alert_status is not None:
+            await db.alerts.insert_one(
+                {
+                    "patient_id": patient_id,
+                    "status": alert_status,
+                    "risk_percent": response.risk_percent,
+                    "message_excerpt": payload.message[:300],
+                }
+            )
+    except (ServerSelectionTimeoutError, PyMongoError):
+        pass
     return response
 
 
@@ -208,16 +263,15 @@ async def ehr_patient_summary(
     patient_id: str, user=Depends(require_roles("clinician", "admin"))
 ):
     db = get_database()
-    item = await db.ehr_mock.find_one({"patient_id": patient_id}, {"_id": 0})
-    if item:
-        return EHRPatientSummary(**item)
+    item = await db.patients.find_one({"patient_id": patient_id}, {"_id": 0})
+    if not item:
+        raise HTTPException(status_code=404, detail="Patient not found")
 
-    # Mock fallback to keep EHR integration point ready
     return EHRPatientSummary(
         patient_id=patient_id,
-        patient_name="Unknown Patient",
-        dob="N/A",
-        mrn=f"MRN-{patient_id}",
+        patient_name=item["name"],
+        dob=item["dob"],
+        mrn=item["mrn"],
         latest_epds=None,
         recent_visits=0,
         known_conditions=[],

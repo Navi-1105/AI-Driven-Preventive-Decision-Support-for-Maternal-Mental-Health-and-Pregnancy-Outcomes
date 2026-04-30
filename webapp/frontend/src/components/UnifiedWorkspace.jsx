@@ -17,10 +17,17 @@ export default function UnifiedWorkspace({
   updateInput,
   patientIdentity,
   setPatientIdentity,
+  patientStatus,
+  patientStatusClass,
+  clinicalActionsEnabled,
+  timelineActionsEnabled,
+  timelineStatus,
   risk,
   timeline,
   handleRisk,
   handleTimeline,
+  handlePatientBlur,
+  handleSavePatient,
 
   // Smart Chat (Middle Column)
   chatMessage,
@@ -48,13 +55,12 @@ export default function UnifiedWorkspace({
 }) {
   return (
     <div className="unified-workspace">
-      {/* Left Column: Patient Profile & Context */}
-      <div className="workspace-column left-column">
+      <aside className="workspace-sidebar workspace-sidebar-left">
         <div className="column-card">
           <div className="section-header">
-            <h2>Patient Profile & Context</h2>
+            <h2>Patient Context</h2>
             <p className="section-description">
-              Enter patient information and risk factors. The system will calculate risk and display trajectory over time.
+              Clinical profile, dynamic factors, and timeline context for the active conversation.
             </p>
           </div>
 
@@ -67,14 +73,15 @@ export default function UnifiedWorkspace({
                 <input
                   value={inputs.patient_id}
                   onChange={(e) => updateInput("patient_id", e.target.value)}
+                  onBlur={handlePatientBlur}
                   placeholder="patient-001"
                 />
               </label>
               <label>
                 Patient Name
                 <input
-                  value={patientIdentity.patient_name}
-                  onChange={(e) => setPatientIdentity((p) => ({ ...p, patient_name: e.target.value }))}
+                  value={patientIdentity.name}
+                  onChange={(e) => setPatientIdentity((p) => ({ ...p, name: e.target.value }))}
                   placeholder="Full Name"
                 />
               </label>
@@ -94,6 +101,16 @@ export default function UnifiedWorkspace({
                   placeholder="Medical Record Number"
                 />
               </label>
+            </div>
+            <div className="row">
+              <button className="secondary" type="button" onClick={handleSavePatient}>
+                Save Patient
+              </button>
+              {patientStatus ? (
+                <span className={`muted ${patientStatusClass || ""}`}>
+                  {patientStatus}
+                </span>
+              ) : null}
             </div>
           </div>
 
@@ -116,7 +133,8 @@ export default function UnifiedWorkspace({
                 <input
                   type="number"
                   value={inputs.age}
-                  onChange={(e) => updateInput("age", e.target.value)}
+                  readOnly
+                  title="Age is calculated from patient DOB"
                   min="15"
                   max="50"
                 />
@@ -184,9 +202,10 @@ export default function UnifiedWorkspace({
               </label>
             </div>
             <div className="row">
-              <button onClick={handleRisk}>Calculate Risk</button>
-              <button className="secondary" onClick={handleTimeline}>Load Timeline</button>
+              <button onClick={handleRisk} disabled={!clinicalActionsEnabled}>Calculate Risk</button>
+              <button className="secondary" onClick={handleTimeline} disabled={!timelineActionsEnabled}>Load Timeline</button>
             </div>
+            {timelineStatus ? <p className="muted">{timelineStatus}</p> : null}
 
             {/* Current Risk Display */}
             {risk && typeof risk.risk_percent === "number" && (
@@ -206,28 +225,58 @@ export default function UnifiedWorkspace({
               currentRisk={risk?.risk_percent}
               gestationalWeeks={inputs.gestational_weeks}
             />
+            <TimelineHistory points={timeline} />
           </div>
         </div>
-      </div>
+      </aside>
 
-      {/* Middle Column: Interactive Smart Chat */}
-      <div className="workspace-column middle-column">
-        <div className="column-card">
-          <div className="chat-header">
+      <main className="workspace-chat-shell">
+        <div className="chat-shell-card">
+          <div className="chat-shell-topbar">
             <div>
+              <p className="chat-kicker">AI maternal mental health copilot</p>
               <h2>Clinical Co-Pilot Chat</h2>
-              <p className="section-description">
-                Enter patient messages to analyze sentiment and risk. Keywords are automatically highlighted with SHAP contributions.
-              </p>
             </div>
-            {chatResult && (
-              <div className="chat-risk-indicator">
-                <RiskBadge value={chatResult.risk_percent} />
-              </div>
-            )}
+            <div className="chat-topbar-meta">
+              {chatResult && (
+                <div className="chat-risk-indicator">
+                  <RiskBadge value={chatResult.risk_percent} />
+                </div>
+              )}
+              <span className={`chat-status-pill ${chatLocked ? "locked" : "live"}`}>
+                {chatLocked ? "Crisis lock active" : "Ready for triage"}
+              </span>
+            </div>
           </div>
 
-          {/* Crisis Banner */}
+          {!chatHistory?.length ? (
+            <div className="chat-welcome">
+              <div className="chat-welcome-copy">
+                <h3>Start a safer, guided patient conversation</h3>
+                <p className="section-description">
+                  Enter patient text or upload a transcript. Risk signals, evidence highlights, and suggested actions appear inline as the thread builds.
+                </p>
+              </div>
+              <div className="chat-suggestion-row">
+                {[
+                  "I have not been sleeping since delivery and feel overwhelmed.",
+                  "I feel constantly anxious and cannot stop crying.",
+                  "Please review this postpartum follow-up transcript."
+                ].map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    className="prompt-chip"
+                    onClick={() => setChatMessage(suggestion)}
+                    disabled={chatLocked}
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           {(chatResult?.crisis_mode || risk?.crisis_mode) && (
             <SafetyOverride
               crisisMode={true}
@@ -236,44 +285,9 @@ export default function UnifiedWorkspace({
             />
           )}
 
-          {/* Chat Input */}
-          <div className="chat-input-section">
-            <label>
-              Patient Message
-              <textarea
-                rows="4"
-                value={chatMessage}
-                onChange={(e) => setChatMessage(e.target.value)}
-                placeholder="Describe current emotional state, sleep, appetite, stress, and postpartum concerns..."
-                disabled={chatLocked}
-              />
-            </label>
-            <div className="row">
-              <button onClick={handleChatAssess} disabled={chatLoading || chatLocked}>
-                {chatLoading ? "Analyzing..." : "Analyze Message"}
-              </button>
-              <label className="file-upload-label">
-                <input
-                  type="file"
-                  accept=".txt,.md,.csv,.pdf"
-                  onChange={handleTranscriptUpload}
-                  disabled={chatLocked}
-                  style={{ display: "none" }}
-                  title="Supported formats: Text (.txt), Markdown (.md), CSV (.csv), PDF (.pdf)"
-                />
-                <span className="secondary">Upload Transcript</span>
-              </label>
-              <p className="muted" style={{ fontSize: "11px", marginTop: "4px" }}>
-                Formats: .txt, .md, .csv, .pdf
-              </p>
-            </div>
-          </div>
-
-          {/* Chat Thread */}
-          <div className="chat-thread-container">
-            <h3>Conversation Thread</h3>
+          <div className="chat-thread-stage">
             {chatHistory && chatHistory.length > 0 ? (
-              <div className="chat-thread">
+              <div className="chat-thread chat-thread-shell">
                 {chatHistory.map((item, index) => (
                   <SmartChatBubble
                     key={`${item.id || item.at}-${index}`}
@@ -287,15 +301,46 @@ export default function UnifiedWorkspace({
                 ))}
               </div>
             ) : (
-              <p className="muted">No messages yet. Submit a patient message to start the conversation.</p>
+              <div className="chat-empty-state">
+                <p>No messages yet.</p>
+                <span className="muted">Submit a patient message to start the thread.</span>
+              </div>
             )}
           </div>
-        </div>
-      </div>
 
-      {/* Right Column: Clinical Insights & RAG Care Plan */}
-      <div className="workspace-column right-column">
-        {/* SHAP XAI Inspector */}
+          <div className="chat-composer">
+            <label className="composer-field">
+              <span className="sr-only">Patient Message</span>
+              <textarea
+                rows="3"
+                value={chatMessage}
+                onChange={(e) => setChatMessage(e.target.value)}
+                placeholder="Message the clinical copilot with patient symptoms, mood shifts, sleep issues, or uploaded transcript notes..."
+                disabled={chatLocked}
+              />
+            </label>
+            <div className="composer-actions">
+              <label className="upload-pill">
+                <input
+                  type="file"
+                  accept=".txt,.md,.csv,.pdf"
+                  onChange={handleTranscriptUpload}
+                  disabled={chatLocked}
+                  style={{ display: "none" }}
+                  title="Supported formats: Text (.txt), Markdown (.md), CSV (.csv), PDF (.pdf)"
+                />
+                Attach transcript
+              </label>
+              <span className="muted">.txt .md .csv .pdf</span>
+              <button onClick={handleChatAssess} disabled={chatLoading || chatLocked || !clinicalActionsEnabled}>
+                {chatLoading ? "Analyzing..." : "Send for analysis"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <aside className="workspace-sidebar workspace-sidebar-right">
         <div className="column-card">
           <div className="section-header">
             <h2>Feature Impact Analysis</h2>
@@ -334,7 +379,7 @@ export default function UnifiedWorkspace({
             title="Evidence-Based Care Plan"
           />
         </div>
-      </div>
+      </aside>
     </div>
   );
 }
@@ -361,12 +406,46 @@ function RiskBadge({ value }) {
   );
 }
 
+function TimelineHistory({ points = [] }) {
+  const rows = [...points].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  if (!rows.length) {
+    return <p className="muted">No stored timeline entries yet.</p>;
+  }
+
+  return (
+    <div className="timeline-history">
+      <h3>Timeline History</h3>
+      <div className="timeline-table">
+        {rows.map((row, index) => (
+          <div className="timeline-row" key={`${row.timestamp}-${index}`}>
+            <span>
+              Week {row.gestational_weeks}
+              <small>{formatTimelineDate(row.timestamp)}</small>
+            </span>
+            <strong>{Number(row.risk_percent).toFixed(1)}%</strong>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function formatTimelineDate(timestamp) {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
 // Enhanced Smart Chat Bubble with Keyword Highlighting
 function SmartChatBubble({ item, itemState, onToggleCarePlan, onReview, onOpenSource, xaiContributions }) {
   const isUser = item.role === "user";
   const isSystem = item.role === "system";
   const isAssistant = item.role === "assistant";
-  const review = itemState?.review || "";
 
   if (isSystem) {
     return (
@@ -384,7 +463,14 @@ function SmartChatBubble({ item, itemState, onToggleCarePlan, onReview, onOpenSo
 
   return (
     <div className={`bubble ${isUser ? "user" : "assistant"}`}>
-      <p className="bubble-role">{isUser ? "Patient" : "AI Clinical Assistant"}</p>
+      <div className="bubble-heading">
+        <p className="bubble-role">{isUser ? "Patient" : "AI Clinical Assistant"}</p>
+        {item.at ? (
+          <span className="bubble-time">
+            {new Date(item.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </span>
+        ) : null}
+      </div>
       <div className="bubble-text">{highlightedText}</div>
 
       {item.meta?.risk_percent !== undefined && (
@@ -421,23 +507,20 @@ function SmartChatBubble({ item, itemState, onToggleCarePlan, onReview, onOpenSo
         </div>
       ) : null}
 
-      {/* Assistant Actions */}
-      {isAssistant && (
+      {isAssistant && item.meta?.sources?.length ? (
         <div className="bubble-actions">
-          <button
-            className={review === "agree" ? "" : "secondary"}
-            onClick={() => onReview(item.id, "agree")}
-          >
-            ✓ Agree
-          </button>
-          <button
-            className={review === "correct" ? "" : "secondary"}
-            onClick={() => onReview(item.id, "correct")}
-          >
-            ✎ Correct
-          </button>
+          {item.meta.sources.map((source) => (
+            <button
+              key={`${item.id}-${source}`}
+              className="chip chip-source"
+              onClick={() => onOpenSource(source)}
+              title={source}
+            >
+              Source: {sourceLabelToName(source)}
+            </button>
+          ))}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -486,6 +569,10 @@ function highlightKeywordsWithSHAP(text, factors, contributions = []) {
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function sourceLabelToName(label) {
+  return (label || "").split(" (score=")[0].trim();
 }
 
 function estimateFactorImpact(factor) {

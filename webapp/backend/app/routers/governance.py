@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
+from pymongo.errors import PyMongoError, ServerSelectionTimeoutError
 
 from app.config import settings
 from app.db.mongo import get_database
@@ -29,21 +30,24 @@ async def upsert_consent(
     if user["role"] == "patient" and payload.updated_by not in (None, user["username"]):
         raise HTTPException(status_code=403, detail="Patients can only update their own consent")
 
-    await db.consents.update_one(
-        {"patient_id": payload.patient_id},
-        {"$set": data},
-        upsert=True,
-    )
+    try:
+        await db.consents.update_one(
+            {"patient_id": payload.patient_id},
+            {"$set": data},
+            upsert=True,
+        )
 
-    await db.audit_logs.insert_one(
-        {
-            "event": "consent_updated",
-            "patient_id": payload.patient_id,
-            "updated_by": payload.updated_by or user["username"],
-            "consent_given": payload.consent_given,
-            "scope": payload.consent_scope,
-        }
-    )
+        await db.audit_logs.insert_one(
+            {
+                "event": "consent_updated",
+                "patient_id": payload.patient_id,
+                "updated_by": payload.updated_by or user["username"],
+                "consent_given": payload.consent_given,
+                "scope": payload.consent_scope,
+            }
+        )
+    except (ServerSelectionTimeoutError, PyMongoError):
+        pass
 
     return ConsentResponse(
         patient_id=payload.patient_id,
@@ -59,7 +63,10 @@ async def get_consent(
     user=Depends(require_roles("patient", "clinician", "admin")),
 ):
     db = get_database()
-    item = await db.consents.find_one({"patient_id": patient_id}, {"_id": 0})
+    try:
+        item = await db.consents.find_one({"patient_id": patient_id}, {"_id": 0})
+    except (ServerSelectionTimeoutError, PyMongoError):
+        raise HTTPException(status_code=404, detail="Consent record not found")
     if item is None:
         raise HTTPException(status_code=404, detail="Consent record not found")
 

@@ -1,8 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./styles.css";
 import UnifiedWorkspace from "./components/UnifiedWorkspace";
+import RiskTrend from "./components/RiskTrend";
+import ShapExplanation from "./components/ShapExplanation";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "";
+const API_BASE = (import.meta.env.VITE_API_BASE || "").trim();
+const DEFAULT_DEV_API_BASE = "http://127.0.0.1:8000";
+
+function resolveApiUrl(path) {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  // In dev, prefer Vite proxy when VITE_API_BASE is empty (proxy is configured for /api).
+  if (!API_BASE && import.meta.env.DEV) return normalizedPath;
+  // In prod builds with no reverse proxy, fall back to localhost backend.
+  if (!API_BASE && !import.meta.env.DEV) return `${DEFAULT_DEV_API_BASE}${normalizedPath}`;
+  return `${API_BASE}${normalizedPath}`;
+}
 const STORAGE_KEYS = {
   token: "ppds_token",
   role: "ppds_role",
@@ -31,6 +43,54 @@ const NAV_ITEMS = [
   { key: "guidance", label: "Guidance & Ethics" }
 ];
 
+const ROLE_OPTIONS = [
+  {
+    key: "patient",
+    label: "Patient Portal",
+    eyebrow: "Personal access",
+    description: "View risk summaries, follow care guidance, and track your support plan.",
+    badge: "PT"
+  },
+  {
+    key: "clinician",
+    label: "Clinician Portal",
+    eyebrow: "Clinical access",
+    description: "Open the unified workspace, patient review tools, and triage decisions.",
+    badge: "MD"
+  }
+];
+
+function calculateAgeFromDob(dob) {
+  if (!dob) return null;
+  const birthDate = new Date(`${dob}T00:00:00`);
+  if (Number.isNaN(birthDate.getTime())) return null;
+
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+  const dayDiff = today.getDate() - birthDate.getDate();
+  if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
+    age -= 1;
+  }
+  return age >= 0 ? age : null;
+}
+
+function normalizeTimelinePoints(data) {
+  const rawPoints = Array.isArray(data) ? data : data?.points || data?.records || [];
+  return rawPoints
+    .map((point) => ({
+      patient_id: point.patient_id,
+      gestational_weeks: Number(point.gestational_weeks),
+      risk_percent: Number(point.risk_percent),
+      timestamp: point.timestamp
+    }))
+    .filter((point) => (
+      Number.isFinite(point.gestational_weeks)
+      && Number.isFinite(point.risk_percent)
+      && point.timestamp
+    ));
+}
+
 export default function App() {
   const [auth, setAuth] = useState({
     username: getStoredValue(STORAGE_KEYS.username, ""),
@@ -39,10 +99,7 @@ export default function App() {
   });
   const [token, setToken] = useState(() => getStoredValue(STORAGE_KEYS.token, ""));
   const [currentRole, setCurrentRole] = useState(() => getStoredValue(STORAGE_KEYS.role, ""));
-  const [activePage, setActivePage] = useState(() => {
-    const role = getStoredValue(STORAGE_KEYS.role, "");
-    return role === "clinician" || role === "admin" ? "workspace" : "overview";
-  });
+  const [activePage, setActivePage] = useState("overview");
 
   const [apiStatus, setApiStatus] = useState("");
   const [backendHealth, setBackendHealth] = useState({ status: "checking", message: "Checking backend..." });
@@ -54,16 +111,20 @@ export default function App() {
     patient_id: getStoredValue(STORAGE_KEYS.patientId, "")
   }));
   const [patientIdentity, setPatientIdentity] = useState({
-    patient_name: "",
+    name: "",
     dob: "",
     mrn: ""
   });
+  const [patientStatus, setPatientStatus] = useState("");
+  const [patientSaved, setPatientSaved] = useState(false);
   const [consentStatus, setConsentStatus] = useState("");
+  const [consentGranted, setConsentGranted] = useState(false);
 
   const [risk, setRisk] = useState(null);
   const [xai, setXai] = useState(null);
   const [xaiStatus, setXaiStatus] = useState("");
   const [timeline, setTimeline] = useState([]);
+  const [timelineStatus, setTimelineStatus] = useState("");
 
   const [chatMessage, setChatMessage] = useState(
     "I gave birth 6 weeks ago, I feel exhausted, cannot sleep, and feel like a bad mother."
@@ -71,6 +132,7 @@ export default function App() {
   const [chatResult, setChatResult] = useState(null);
   const [chatHistory, setChatHistory] = useState([]);
   const [chatItemState, setChatItemState] = useState({});
+  const chatEndRef = useRef(null);
   const [caseStatus, setCaseStatus] = useState("new");
   const [chatLoading, setChatLoading] = useState(false);
   const [chatLocked, setChatLocked] = useState(false);
@@ -99,10 +161,43 @@ export default function App() {
   const visibleNav = NAV_ITEMS.filter((item) => !item.roles || item.roles.includes(role));
 
   useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [chatHistory, chatLoading]);
+
+  useEffect(() => {
     if (!visibleNav.some((item) => item.key === activePage)) {
       setActivePage("overview");
     }
   }, [role]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const validateStoredSession = async () => {
+      if (!token) return;
+      try {
+        const data = await requestJson(resolveApiUrl("/api/auth/me"), {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (cancelled) return;
+        setCurrentRole(data.role || "");
+        setAuth((prev) => ({ ...prev, username: data.username || prev.username }));
+      } catch (error) {
+        if (!cancelled) {
+          if (error?.status === 401) {
+            clearSessionState("Session expired. Please sign in again.");
+          } else {
+            setApiStatus(error.message || "Could not validate saved session.");
+          }
+        }
+      }
+    };
+
+    validateStoredSession();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     setStoredValue(STORAGE_KEYS.token, token);
@@ -120,8 +215,28 @@ export default function App() {
     setStoredValue(STORAGE_KEYS.patientId, inputs.patient_id);
   }, [inputs.patient_id]);
 
+  useEffect(() => {
+    const derivedAge = calculateAgeFromDob(patientIdentity.dob);
+    if (derivedAge === null) return;
+    setInputs((prev) => (
+      Number(prev.age) === derivedAge ? prev : { ...prev, age: derivedAge }
+    ));
+  }, [patientIdentity.dob]);
+
   const updateInput = (field, value) => {
     setInputs((prev) => ({ ...prev, [field]: value }));
+    if (field === "patient_id") {
+      setPatientStatus("");
+      setPatientSaved(false);
+      setPatientIdentity({ name: "", dob: "", mrn: "" });
+      setTimeline([]);
+      setTimelineStatus("");
+    }
+  };
+
+  const handleRoleSelect = (nextRole) => {
+    setAuth((prev) => ({ ...prev, role: nextRole }));
+    setAuthStatus("");
   };
 
   const authHeaders = () => ({
@@ -137,26 +252,49 @@ export default function App() {
     }
   };
 
-  const requestJson = async (url, options = {}) => {
+  const formatApiError = (data, fallback) => {
+    const detail = data?.detail;
+    if (Array.isArray(detail)) {
+      return detail
+        .map((item) => {
+          const field = Array.isArray(item.loc) ? item.loc.filter((part) => part !== "body").join(".") : "";
+          return field ? `${field}: ${item.msg}` : item.msg;
+        })
+        .filter(Boolean)
+        .join("; ");
+    }
+    if (typeof detail === "string") return detail;
+    if (detail && typeof detail === "object") {
+      return detail.msg || detail.message || JSON.stringify(detail);
+    }
+    return fallback;
+  };
+
+  const requestJson = async (url, options = {}, config = {}) => {
     let lastError = null;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    const timeoutMs = Number.isFinite(config.timeoutMs) ? config.timeoutMs : 15000;
+    const retries = Number.isFinite(config.retries) ? Math.max(0, config.retries) : 1;
+    for (let attempt = 0; attempt < retries + 1; attempt += 1) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
       try {
         const response = await fetch(url, { ...options, signal: controller.signal });
         const data = await parseJsonSafe(response);
         if (!response.ok) {
-          const message = data?.detail || `Request failed (${response.status})`;
-          throw new Error(message);
+          const message = formatApiError(data, `Request failed (${response.status})`);
+          if (response.status === 401) {
+            clearSessionState("Session expired. Please sign in again.");
+          }
+          const error = new Error(message);
+          error.status = response.status;
+          throw error;
         }
         return data;
       } catch (error) {
         lastError = error;
         const isRetryable = error?.name === "AbortError" || error instanceof TypeError;
-        if (!isRetryable || attempt === 1) {
-          if (error?.name === "AbortError") {
-            throw new Error(`Backend timeout at ${API_BASE}`);
-          }
+        if (!isRetryable || attempt >= retries) {
+          if (error?.name === "AbortError") throw new Error(`Backend timeout: ${url}`);
           throw error;
         }
       } finally {
@@ -166,12 +304,35 @@ export default function App() {
     throw lastError;
   };
 
+  const clearSessionState = (message = "") => {
+    setToken("");
+    setCurrentRole("");
+    setAuthStatus(message);
+    setConsentStatus("");
+    setConsentGranted(false);
+    setPatientStatus("");
+    setPatientSaved(false);
+    setPatientIdentity({ name: "", dob: "", mrn: "" });
+    setRisk(null);
+    setXai(null);
+    setTimeline([]);
+    setTimelineStatus("");
+    setChatResult(null);
+    setChatHistory([]);
+    setChatItemState({});
+    setChatLocked(false);
+    setRagResponse(null);
+    setFairnessResult(null);
+    setStoredValue(STORAGE_KEYS.token, "");
+    setStoredValue(STORAGE_KEYS.role, "");
+  };
+
   useEffect(() => {
     const checkHealth = async () => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 2500);
       try {
-        const response = await fetch(`${API_BASE}/api/health`, { signal: controller.signal });
+        const response = await fetch(resolveApiUrl("/api/health"), { signal: controller.signal });
         if (!response.ok) {
           throw new Error(`Health check failed (${response.status})`);
         }
@@ -180,7 +341,11 @@ export default function App() {
       } catch {
         setBackendHealth({
           status: "offline",
-          message: `Backend offline at ${API_BASE || "/api"}. Start backend or set VITE_API_BASE.`
+          message: API_BASE
+            ? `Backend offline at ${API_BASE}.`
+            : import.meta.env.DEV
+              ? "Backend offline. Start backend on http://127.0.0.1:8000 (Vite proxy expects /api)."
+              : `Backend offline. Set VITE_API_BASE or run backend at ${DEFAULT_DEV_API_BASE}.`
         });
       } finally {
         clearTimeout(timeout);
@@ -195,30 +360,40 @@ export default function App() {
 
     const checkConsentStatus = async () => {
       if (!token) {
-        if (!cancelled) setConsentStatus("");
+        if (!cancelled) {
+          setConsentStatus("");
+          setConsentGranted(false);
+        }
         return;
       }
       if (!inputs.patient_id) {
-        if (!cancelled) setConsentStatus("Enter patient ID to check consent");
+        if (!cancelled) {
+          setConsentStatus("Enter patient ID to check consent");
+          setConsentGranted(false);
+        }
         return;
       }
 
       try {
-        const data = await requestJson(`${API_BASE}/api/privacy/consent/${encodeURIComponent(inputs.patient_id)}`, {
+        const data = await requestJson(resolveApiUrl(`/api/privacy/consent/${encodeURIComponent(inputs.patient_id)}`), {
           headers: authHeaders()
         });
         if (cancelled) return;
         if (data?.consent_given) {
           setConsentStatus(`Consent active (${(data.consent_scope || []).join(", ")})`);
+          setConsentGranted(true);
         } else {
           setConsentStatus("Consent not granted");
+          setConsentGranted(false);
         }
       } catch (error) {
         if (cancelled) return;
         if ((error?.message || "").toLowerCase().includes("not found")) {
           setConsentStatus("Consent not granted");
+          setConsentGranted(false);
         } else {
           setConsentStatus(`Consent check failed: ${error.message}`);
+          setConsentGranted(false);
         }
       }
     };
@@ -245,6 +420,119 @@ export default function App() {
     self_harm: Number(inputs.self_harm)
   });
 
+  const fetchTimelineForPatient = async (patientId) => {
+    if (!patientId) return [];
+    setTimelineStatus("Loading timeline...");
+    const data = await requestJson(resolveApiUrl(`/api/timeline/${encodeURIComponent(patientId)}`), {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    });
+    const points = normalizeTimelinePoints(data);
+    setTimeline(points);
+    setTimelineStatus(
+      points.length
+        ? `Loaded ${points.length} timeline entr${points.length === 1 ? "y" : "ies"}.`
+        : "No timeline entries yet. Run risk to create the first one."
+    );
+    return points;
+  };
+
+  const patientStatusClass = patientStatus.includes("found") || patientStatus.includes("saved")
+    ? "status-good"
+    : patientStatus.includes("New patient")
+      ? "status-warn"
+      : "";
+
+  const clinicalActionsEnabled = patientSaved && consentGranted;
+  const timelineActionsEnabled = Boolean(inputs.patient_id.trim()) && consentGranted;
+
+  const fetchPatient = async (patientId = inputs.patient_id) => {
+    const id = patientId.trim();
+    if (!id) {
+      setPatientStatus("");
+      setPatientSaved(false);
+      return null;
+    }
+    if (!token) {
+      setPatientStatus("Sign in to fetch patient details.");
+      return null;
+    }
+
+    try {
+      setPatientStatus("Looking up patient...");
+      const result = await requestJson(resolveApiUrl(`/api/patient/${encodeURIComponent(id)}`), {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      if (!result.exists) {
+        setPatientIdentity({ name: "", dob: "", mrn: "" });
+        setPatientSaved(false);
+        setTimeline([]);
+        setTimelineStatus("");
+        setPatientStatus("New patient");
+        return null;
+      }
+      const patient = result.data || {};
+      setPatientIdentity({
+        name: patient.name || "",
+        dob: patient.dob || "",
+        mrn: patient.mrn || ""
+      });
+      setPatientSaved(true);
+      setPatientStatus("Patient found");
+      fetchTimelineForPatient(id).catch(() => {
+        setTimelineStatus("");
+      });
+      return patient;
+    } catch (error) {
+      setPatientSaved(false);
+      setPatientStatus(`Patient lookup failed: ${error.message}`);
+      return null;
+    }
+  };
+
+  const handlePatientBlur = () => {
+    if (inputs.patient_id.trim()) {
+      fetchPatient();
+    }
+  };
+
+  const handleSavePatient = async () => {
+    const patient_id = inputs.patient_id.trim();
+    if (!patient_id) {
+      setPatientStatus("Enter a Patient ID before saving.");
+      return;
+    }
+    if (!patientIdentity.name || !patientIdentity.dob || !patientIdentity.mrn) {
+      setPatientStatus("Enter name, DOB, and MRN before saving.");
+      return;
+    }
+
+    try {
+      setPatientStatus("Saving patient...");
+      const result = await requestJson(resolveApiUrl("/api/patient"), {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          patient_id,
+          name: patientIdentity.name,
+          dob: patientIdentity.dob,
+          mrn: patientIdentity.mrn
+        })
+      });
+      const patient = result.data || {};
+      setPatientIdentity({
+        name: patient.name || "",
+        dob: patient.dob || "",
+        mrn: patient.mrn || ""
+      });
+      setPatientSaved(true);
+      setPatientStatus("Patient saved");
+      setTimelineStatus("Patient saved. Run risk to add timeline entries.");
+    } catch (error) {
+      setPatientSaved(false);
+      setPatientStatus(`Patient save failed: ${error.message}`);
+    }
+  };
+
   const handleRegister = async () => {
     if (!auth.role) {
       setAuthStatus("Please select a role first");
@@ -254,19 +542,28 @@ export default function App() {
       setAuthStatus("Please enter both username and password");
       return;
     }
+    if (auth.password.length < 8) {
+      setAuthStatus("Registration failed: password must be at least 8 characters.");
+      return;
+    }
     
     try {
       setAuthLoading(true);
       setApiStatus("");
       setAuthStatus("");
-      const data = await requestJson(`${API_BASE}/api/auth/register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(auth)
-      });
+      const data = await requestJson(
+        resolveApiUrl("/api/auth/register"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(auth)
+        },
+        { timeoutMs: 5000, retries: 0 }
+      );
       setToken(data.access_token);
       setCurrentRole(data.role);
-      setAuthStatus(`✓ Successfully registered as ${data.role}`);
+      setAuthStatus(`Account created. Signed in as ${data.role}.`);
+      setAuth((prev) => ({ ...prev, password: "" }));
       
       // Route to role-specific page
       if (data.role === "clinician" || data.role === "admin") {
@@ -277,7 +574,7 @@ export default function App() {
         setActivePage("overview");
       }
     } catch (error) {
-      setAuthStatus(`✗ Registration failed: ${error.message || "Please try again"}`);
+      setAuthStatus(`Registration failed: ${error.message || "Please try again"}`);
     } finally {
       setAuthLoading(false);
     }
@@ -297,14 +594,19 @@ export default function App() {
       setAuthLoading(true);
       setApiStatus("");
       setAuthStatus("");
-      const data = await requestJson(`${API_BASE}/api/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: auth.username, password: auth.password })
-      });
+      const data = await requestJson(
+        resolveApiUrl("/api/auth/login"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: auth.username, password: auth.password })
+        },
+        { timeoutMs: 5000, retries: 0 }
+      );
       setToken(data.access_token);
       setCurrentRole(data.role);
-      setAuthStatus(`✓ Successfully logged in as ${data.role}`);
+      setAuthStatus(`Signed in as ${data.role}.`);
+      setAuth((prev) => ({ ...prev, password: "" }));
       
       // Route to role-specific page
       if (data.role === "clinician" || data.role === "admin") {
@@ -315,7 +617,7 @@ export default function App() {
         setActivePage("overview");
       }
     } catch (error) {
-      setAuthStatus(`✗ Login failed: ${error.message || "Invalid credentials"}`);
+      setAuthStatus(`Sign-in failed: ${error.message || "Invalid credentials"}`);
     } finally {
       setAuthLoading(false);
     }
@@ -328,6 +630,10 @@ export default function App() {
     setApiStatus("");
     setAuthStatus("");
     setConsentStatus("");
+    setConsentGranted(false);
+    setPatientStatus("");
+    setPatientSaved(false);
+    setPatientIdentity({ name: "", dob: "", mrn: "" });
     setRisk(null);
     setXai(null);
     setTimeline([]);
@@ -348,9 +654,17 @@ export default function App() {
 
   const handleConsent = async () => {
     try {
-      if (!inputs.patient_id || !token) return;
+      if (!inputs.patient_id) {
+        setConsentStatus("Enter a Patient ID before granting consent.");
+        return;
+      }
+      if (!token) {
+        setConsentStatus("Sign in before granting consent.");
+        return;
+      }
       setApiStatus("");
-      const data = await requestJson(`${API_BASE}/api/privacy/consent`, {
+      setConsentStatus("Saving consent...");
+      const data = await requestJson(resolveApiUrl("/api/privacy/consent"), {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify({
@@ -361,30 +675,52 @@ export default function App() {
         })
       });
       if (data.patient_id) {
+        const consentActive = Boolean(data.consent_given);
+        setConsentGranted(consentActive);
         setConsentStatus(
-          data.consent_given
+          consentActive
             ? `Consent active (${(data.consent_scope || []).join(", ")})`
             : "Consent not granted"
         );
+        if (consentActive) {
+          fetchTimelineForPatient(inputs.patient_id).catch((error) => {
+            setTimelineStatus(getClinicalErrorMessage(error));
+          });
+        }
       }
     } catch (error) {
       setConsentStatus(error.message || "Consent failed");
+      setConsentGranted(false);
       setApiStatus(error.message || "Consent failed");
     }
+  };
+
+  const getClinicalErrorMessage = (error) => {
+    const message = error?.message || "Request failed";
+    if (message === "Consent record required for patient") {
+      return "Consent record required for patient. Enter the Patient ID and click Grant Consent first.";
+    }
+    if (message === "Consent not granted by patient") {
+      return "Consent not granted by patient. Click Grant Consent before running clinical tools.";
+    }
+    if (message.startsWith("Consent scope missing:")) {
+      return `${message}. Update consent before running this workflow.`;
+    }
+    return message;
   };
 
   const handleRisk = async () => {
     try {
       setApiStatus("");
       const payload = buildPayload();
-      const data = await requestJson(`${API_BASE}/api/risk`, {
+      const data = await requestJson(resolveApiUrl("/api/risk"), {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify(payload)
       });
       setRisk(data);
 
-      const xaiData = await requestJson(`${API_BASE}/api/xai`, {
+      const xaiData = await requestJson(resolveApiUrl("/api/xai"), {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify(payload)
@@ -398,35 +734,51 @@ export default function App() {
         setXaiStatus("No feature contributions returned for this record.");
       }
       if (inputs.patient_id) {
-        const timelineData = await requestJson(`${API_BASE}/api/timeline/${inputs.patient_id}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {}
-        });
-        setTimeline(timelineData.points || []);
+        await fetchTimelineForPatient(inputs.patient_id);
       }
     } catch (error) {
       setRisk(null);
       setXai(null);
       setXaiStatus("");
-      setApiStatus(error.message);
+      setApiStatus(getClinicalErrorMessage(error));
     }
   };
 
   const handleTimeline = async () => {
     try {
-      if (!inputs.patient_id) return;
+      const patientId = inputs.patient_id.trim();
+      if (!patientId) {
+        setTimelineStatus("Enter a Patient ID before loading timeline.");
+        return;
+      }
+      if (!consentGranted) {
+        setTimelineStatus("Grant consent before loading timeline.");
+        return;
+      }
       setApiStatus("");
-      const data = await requestJson(`${API_BASE}/api/timeline/${inputs.patient_id}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {}
-      });
-      setTimeline(data.points || []);
+      if (!patientSaved) {
+        const patient = await fetchPatient(patientId);
+        if (!patient) {
+          setTimelineStatus("Save this patient before loading timeline.");
+          return;
+        }
+      }
+      await fetchTimelineForPatient(patientId);
     } catch (error) {
       setTimeline([]);
-      setApiStatus(error.message);
+      const message = getClinicalErrorMessage(error);
+      setTimelineStatus(message);
+      setApiStatus(message);
     }
   };
 
   const handleChatAssess = async () => {
     if (chatLocked) return;
+    const message = chatMessage.trim();
+    if (!message) {
+      setApiStatus("Type a patient message before sending.");
+      return;
+    }
     setChatLoading(true);
     try {
       setApiStatus("");
@@ -434,13 +786,13 @@ export default function App() {
       const userMessage = {
         id: `u-${runId}`,
         role: "user",
-        text: chatMessage,
+        text: message,
         at: new Date().toISOString()
       };
-      const data = await requestJson(`${API_BASE}/api/chat-assess`, {
+      const data = await requestJson(resolveApiUrl("/api/chat-assess"), {
         method: "POST",
         headers: authHeaders(),
-        body: JSON.stringify({ patient_id: inputs.patient_id || undefined, message: chatMessage })
+        body: JSON.stringify({ patient_id: inputs.patient_id || undefined, message })
       });
       const assistantId = `a-${runId}`;
       const carePlan = toKeyPoints(data.guidance).map((text, idx) => ({
@@ -487,9 +839,10 @@ export default function App() {
         id: item.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       }));
       setCarePlanItems(newCarePlanItems);
+      setChatMessage("");
     } catch (error) {
       setChatResult(null);
-      setApiStatus(error.message);
+      setApiStatus(getClinicalErrorMessage(error));
     } finally {
       setChatLoading(false);
     }
@@ -498,7 +851,7 @@ export default function App() {
   const handleRag = async () => {
     try {
       setApiStatus("");
-      const data = await requestJson(`${API_BASE}/api/rag`, {
+      const data = await requestJson(resolveApiUrl("/api/rag"), {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify({
@@ -532,7 +885,7 @@ export default function App() {
   const handleFairness = async () => {
     try {
       setApiStatus("");
-      const data = await requestJson(`${API_BASE}/api/fairness`, {
+      const data = await requestJson(resolveApiUrl("/api/fairness"), {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify({
@@ -554,7 +907,7 @@ export default function App() {
     if (!risk?.prediction_id) return;
     try {
       setApiStatus("");
-      await requestJson(`${API_BASE}/api/feedback`, {
+      await requestJson(resolveApiUrl("/api/feedback"), {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify({ prediction_id: risk.prediction_id, clinician_label: label })
@@ -568,7 +921,7 @@ export default function App() {
   const handleEscalate = async (type) => {
     try {
       setApiStatus("");
-      await requestJson(`${API_BASE}/api/clinical-outcome`, {
+      await requestJson(resolveApiUrl("/api/clinical-outcome"), {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify({
@@ -589,12 +942,39 @@ export default function App() {
 
   const handleLoadEhr = async () => {
     try {
-      if (!inputs.patient_id) return;
+      if (!["clinician", "admin"].includes(role)) {
+        setApiStatus("EHR summary is available only in the clinician portal.");
+        return;
+      }
+      if (!inputs.patient_id) {
+        setApiStatus("Enter a Patient ID before loading EHR summary.");
+        return;
+      }
       setApiStatus("");
-      const data = await requestJson(`${API_BASE}/api/ehr/patient/${inputs.patient_id}`, {
+      const data = await requestJson(resolveApiUrl(`/api/patient/${encodeURIComponent(inputs.patient_id)}`), {
         headers: token ? { Authorization: `Bearer ${token}` } : {}
       });
-      setEhrSummary(data);
+      if (!data.exists || !data.data) {
+        setEhrSummary(null);
+        setPatientSaved(false);
+        setPatientStatus("New patient");
+        return;
+      }
+      const patient = data.data;
+      setPatientIdentity({
+        name: patient.name || "",
+        dob: patient.dob || "",
+        mrn: patient.mrn || ""
+      });
+      setPatientSaved(true);
+      setPatientStatus("Patient found");
+      setEhrSummary({
+        patient_name: patient.name,
+        dob: patient.dob,
+        mrn: patient.mrn,
+        recent_visits: 0,
+        latest_epds: null
+      });
     } catch (error) {
       setEhrSummary(null);
       setApiStatus(error.message);
@@ -604,7 +984,7 @@ export default function App() {
   const handleClinicalOutcome = async () => {
     try {
       setApiStatus("");
-      await requestJson(`${API_BASE}/api/clinical-outcome`, {
+      await requestJson(resolveApiUrl("/api/clinical-outcome"), {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify({
@@ -648,19 +1028,21 @@ export default function App() {
       }
 
       if (!text || text.trim().length === 0) {
-        setApiStatus("⚠️ File appears to be empty or could not be read.");
+        setApiStatus("File appears to be empty or could not be read.");
         return;
       }
 
       // Add file info header
       const fileInfo = `[Uploaded: ${file.name} - ${(file.size / 1024).toFixed(1)} KB]\n\n`;
       setChatMessage((prev) => (prev ? `${prev}\n\n${fileInfo}${text}` : `${fileInfo}${text}`));
-      setApiStatus(`✓ Successfully loaded ${file.name} (${(file.size / 1024).toFixed(1)} KB, ${text.split('\n').length} lines)`);
+      setApiStatus(
+        `Loaded ${file.name} (${(file.size / 1024).toFixed(1)} KB, ${text.split("\n").length} lines)`
+      );
       
       // Clear the file input so the same file can be uploaded again if needed
       event.target.value = "";
     } catch (error) {
-      setApiStatus(`✗ Error: ${error.message || "Failed to process file"}`);
+      setApiStatus(`Error: ${error.message || "Failed to process file"}`);
       console.error("File upload error:", error);
     }
   };
@@ -764,7 +1146,7 @@ export default function App() {
   const openSource = async (label) => {
     try {
       const name = sourceLabelToName(label);
-      const data = await requestJson(`${API_BASE}/api/rag/source/${encodeURIComponent(name)}`, {
+      const data = await requestJson(resolveApiUrl(`/api/rag/source/${encodeURIComponent(name)}`), {
         headers: token ? { Authorization: `Bearer ${token}` } : {}
       });
       setSourcePreview(data);
@@ -779,113 +1161,113 @@ export default function App() {
         <header className="hero">
           <div>
             <p className="eyebrow">Perinatal Preventive Decision Support</p>
-            <h1>Welcome</h1>
-            <p className="subtext">Please select your role and sign in to access the system.</p>
+            <h1>Secure Access</h1>
+            <p className="subtext">Select a portal to continue.</p>
           </div>
         </header>
         <section className="auth-section">
           <div className="auth-card">
-            <h2>Select Your Role</h2>
-            <p className="auth-instruction">
-              Choose your role to access the appropriate portal. Each role provides different features and access levels.
+            <h2>Sign in</h2>
+            <p className={`muted ${backendHealth.status === "offline" ? "status-bad" : "status-good"}`}>
+              {backendHealth.message}
             </p>
-            
+
             <div className="role-selection">
+              {ROLE_OPTIONS.map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  className={`role-btn ${auth.role === option.key ? "selected" : ""}`}
+                  onClick={() => handleRoleSelect(option.key)}
+                >
+                  <div className="role-icon">{option.badge}</div>
+                  <div className="role-info">
+                    <h3>{option.label}</h3>
+                    <p className="muted">{option.description}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div className="form-group">
+              <label>
+                Username
+                <input
+                  value={auth.username}
+                  onChange={(e) => setAuth((prev) => ({ ...prev, username: e.target.value }))}
+                  placeholder={auth.role === "patient" ? "patient-001" : "clin1"}
+                  autoFocus
+                />
+              </label>
+
+              <label>
+                Password
+                <input
+                  type="password"
+                  value={auth.password}
+                  onChange={(e) => setAuth((prev) => ({ ...prev, password: e.target.value }))}
+                  placeholder="Enter your password"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && auth.username && auth.password && auth.role) {
+                      handleLogin();
+                    }
+                  }}
+                />
+                <span className="field-hint">Use at least 8 characters for sign up.</span>
+              </label>
+            </div>
+
+            <div className="auth-actions">
               <button
-                className={`role-btn ${auth.role === "patient" ? "selected" : ""}`}
-                onClick={() => setAuth((prev) => ({ ...prev, role: "patient" }))}
+                onClick={handleLogin}
+                disabled={
+                  authLoading ||
+                  backendHealth.status === "offline" ||
+                  !auth.username ||
+                  !auth.password ||
+                  !auth.role
+                }
+                className="primary-btn"
               >
-                <div className="role-icon">👤</div>
-                <div className="role-info">
-                  <h3>Patient Portal</h3>
-                  <p className="muted">Access your personal health information and risk assessments</p>
-                </div>
+                {authLoading ? "Signing in..." : "Sign In"}
               </button>
-              
               <button
-                className={`role-btn ${auth.role === "clinician" ? "selected" : ""}`}
-                onClick={() => setAuth((prev) => ({ ...prev, role: "clinician" }))}
+                onClick={handleRegister}
+                disabled={
+                  authLoading ||
+                  backendHealth.status === "offline" ||
+                  !auth.username ||
+                  !auth.password ||
+                  !auth.role
+                }
+                className="secondary-btn"
               >
-                <div className="role-icon">👨‍⚕️</div>
-                <div className="role-info">
-                  <h3>Clinician Portal</h3>
-                  <p className="muted">Access unified workspace, patient management, and clinical tools</p>
-                </div>
+                {authLoading ? "Creating..." : "Sign Up"}
               </button>
             </div>
 
-            {auth.role && (
-              <div className="login-form">
-                <h3>Sign In as {auth.role === "patient" ? "Patient" : "Clinician"}</h3>
-                <p className={`muted ${backendHealth.status === "offline" ? "status-bad" : "status-good"}`}>
-                  {backendHealth.message}
-                </p>
-                
-                <div className="form-group">
-                  <label>
-                    Username
-                    <input
-                      value={auth.username}
-                      onChange={(e) => setAuth((prev) => ({ ...prev, username: e.target.value }))}
-                      placeholder={auth.role === "patient" ? "patient-001" : "clin1"}
-                      autoFocus
-                    />
-                  </label>
-                  
-                  <label>
-                    Password
-                    <input
-                      type="password"
-                      value={auth.password}
-                      onChange={(e) => setAuth((prev) => ({ ...prev, password: e.target.value }))}
-                      placeholder="Enter your password"
-                      onKeyPress={(e) => {
-                        if (e.key === "Enter" && auth.username && auth.password) {
-                          handleLogin();
-                        }
-                      }}
-                    />
-                  </label>
-                </div>
-
-                <div className="auth-actions">
-                  <button 
-                    onClick={handleLogin} 
-                    disabled={authLoading || !auth.username || !auth.password || !auth.role}
-                    className="primary-btn"
-                  >
-                    {authLoading ? "Signing in..." : "Sign In"}
-                  </button>
-                  <button 
-                    onClick={handleRegister} 
-                    disabled={authLoading || !auth.username || !auth.password || !auth.role}
-                    className="secondary-btn"
-                  >
-                    {authLoading ? "Registering..." : "Register New Account"}
-                  </button>
-                </div>
-
-                {authStatus && (
-                  <div className={`auth-status ${authStatus.includes("failed") || authStatus.includes("error") ? "error" : "success"}`}>
-                    {authStatus}
-                  </div>
-                )}
-                
-                {apiStatus && (
-                  <div className="auth-status error">
-                    API error: {apiStatus}
-                  </div>
-                )}
-                
-                <p className="muted auth-footer">API Endpoint: {API_BASE}</p>
+            {authStatus ? (
+              <div
+                className={`auth-status ${
+                  authStatus.toLowerCase().includes("failed") || authStatus.toLowerCase().includes("error")
+                    ? "error"
+                    : "success"
+                }`}
+              >
+                {authStatus}
               </div>
-            )}
+            ) : null}
 
-            {!auth.role && (
-              <div className="role-prompt">
-                <p className="muted">👆 Please select your role above to continue</p>
-              </div>
-            )}
+            {apiStatus ? <div className="auth-status error">API error: {apiStatus}</div> : null}
+
+            <p className="muted auth-footer">
+              API Endpoint:{" "}
+              {API_BASE
+                ? API_BASE
+                : import.meta.env.DEV
+                  ? "(via Vite proxy: /api → http://127.0.0.1:8000)"
+                  : `(${DEFAULT_DEV_API_BASE} fallback — set VITE_API_BASE to override)`}
+            </p>
           </div>
         </section>
       </div>
@@ -926,10 +1308,17 @@ export default function App() {
           updateInput={updateInput}
           patientIdentity={patientIdentity}
           setPatientIdentity={setPatientIdentity}
+          patientStatus={patientStatus}
+          patientStatusClass={patientStatusClass}
+          clinicalActionsEnabled={clinicalActionsEnabled}
+          timelineActionsEnabled={timelineActionsEnabled}
+          timelineStatus={timelineStatus}
           risk={risk}
           timeline={timeline}
           handleRisk={handleRisk}
           handleTimeline={handleTimeline}
+          handlePatientBlur={handlePatientBlur}
+          handleSavePatient={handleSavePatient}
           chatMessage={chatMessage}
           setChatMessage={setChatMessage}
           chatHistory={chatHistory}
@@ -974,18 +1363,22 @@ export default function App() {
           </div>
 
           <div className="card">
-            <h2>Consent Setup</h2>
+            <h2>{role === "patient" ? "Patient Consent" : "Consent & EHR"}</h2>
             <label>
               Patient ID
               <input
                 value={inputs.patient_id}
                 onChange={(e) => updateInput("patient_id", e.target.value)}
+                onBlur={handlePatientBlur}
                 placeholder="patient-001"
               />
             </label>
             <button onClick={handleConsent}>Grant Consent</button>
-            <button className="secondary" onClick={handleLoadEhr}>Load EHR Summary</button>
+            {["clinician", "admin"].includes(role) ? (
+              <button className="secondary" onClick={handleLoadEhr}>Load EHR Summary</button>
+            ) : null}
             {consentStatus ? <p className="muted">{consentStatus}</p> : null}
+            {patientStatus ? <p className={`muted ${patientStatusClass}`}>{patientStatus}</p> : null}
             {ehrSummary ? (
               <div className="result">
                 <p><strong>{ehrSummary.patient_name}</strong></p>
@@ -999,123 +1392,123 @@ export default function App() {
       ) : null}
 
       {activePage === "chat" ? (
-        <section className="grid">
-          <div className="card">
-            <h2>Chat Sentiment + RAG Risk Triage</h2>
-            {chatResult ? (
-              <div className="chat-risk-head">
-                <span className="chip">Live Risk Meter</span>
-                <RiskMeter value={chatResult.risk_percent} />
+        <section className="chatgpt-page">
+          <aside className="chatgpt-sidebar">
+            <div className="chatgpt-panel">
+              <h2>Patient Context</h2>
+              <div className="identity-grid">
+                <label>
+                  Patient ID
+                  <input
+                    value={inputs.patient_id}
+                    onChange={(e) => updateInput("patient_id", e.target.value)}
+                    onBlur={handlePatientBlur}
+                    placeholder="patient-001"
+                  />
+                </label>
+                <label>
+                  Patient Name
+                  <input
+                    value={patientIdentity.name}
+                    onChange={(e) => setPatientIdentity((p) => ({ ...p, name: e.target.value }))}
+                    placeholder="Full Name"
+                  />
+                </label>
+                <label>
+                  DOB
+                    <input
+                      type="date"
+                      value={patientIdentity.dob}
+                      onChange={(e) => setPatientIdentity((p) => ({ ...p, dob: e.target.value }))}
+                    />
+                </label>
+                <label>
+                  MRN
+                  <input
+                    value={patientIdentity.mrn}
+                    onChange={(e) => setPatientIdentity((p) => ({ ...p, mrn: e.target.value }))}
+                    placeholder="Medical Record Number"
+                  />
+                </label>
               </div>
-            ) : null}
-            <div className="identity-grid">
-              <label>
-                Patient Name
-                <input
-                  value={patientIdentity.patient_name}
-                  onChange={(e) => setPatientIdentity((p) => ({ ...p, patient_name: e.target.value }))}
-                  placeholder="Full Name"
-                />
-              </label>
-              <label>
-                DOB
-                <input
-                  type="date"
-                  value={patientIdentity.dob}
-                  onChange={(e) => setPatientIdentity((p) => ({ ...p, dob: e.target.value }))}
-                />
-              </label>
-              <label>
-                MRN
-                <input
-                  value={patientIdentity.mrn}
-                  onChange={(e) => setPatientIdentity((p) => ({ ...p, mrn: e.target.value }))}
-                  placeholder="Medical Record Number"
-                />
-              </label>
+              <div className="row">
+                <button className="secondary" type="button" onClick={handleSavePatient}>
+                  Save Patient
+                </button>
+                {patientStatus ? <span className={`muted ${patientStatusClass}`}>{patientStatus}</span> : null}
+              </div>
             </div>
-            <label>
-              Patient Message
-              <textarea
-                rows="5"
-                value={chatMessage}
-                onChange={(e) => setChatMessage(e.target.value)}
-                placeholder="Describe current emotional state, sleep, appetite, stress, and postpartum concerns."
-                disabled={chatLocked}
-              />
-            </label>
-            <button onClick={handleChatAssess} disabled={chatLoading || chatLocked}>
-              {chatLoading ? "Analyzing..." : "Analyze Chat"}
-            </button>
-            <button
-              className="secondary"
-              onClick={() => {
-                setChatHistory([]);
-                setChatItemState({});
-                setChatResult(null);
-                setChatLocked(false);
-                setEscalationStatus("");
-              }}
-            >
-              Clear Chat
-            </button>
-            <label>
-              Upload Transcript
-              <input 
-                type="file" 
-                accept=".txt,.md,.csv,.pdf" 
-                onChange={handleTranscriptUpload} 
-                disabled={chatLocked}
-                title="Supported formats: Text (.txt), Markdown (.md), CSV (.csv), PDF (.pdf)"
-              />
-              <p className="muted" style={{ fontSize: "11px", marginTop: "4px" }}>
-                Supported formats: .txt, .md, .csv, .pdf
-              </p>
-            </label>
-            {chatLocked ? (
-              <div className="crisis-banner">
-                Crisis mode active. Chat input locked. Use escalation actions immediately.
-              </div>
-            ) : null}
 
-            {chatResult && (
-              <div className={`result ${chatResult.crisis_mode ? "alert" : ""}`}>
-                {chatResult.crisis_mode ? (
-                  <div className="crisis-banner">Immediate Crisis Alert: escalate now</div>
+            <div className="chatgpt-panel">
+              <h2>Live Triage</h2>
+              {chatResult ? (
+                <>
+                  <RiskMeter value={chatResult.risk_percent} />
+                  <div className="chatgpt-status-list">
+                    <div><span>Risk</span><strong>{chatResult.risk_level}</strong></div>
+                    <div><span>Context</span><strong>{chatResult.likely_context}</strong></div>
+                    <div><span>Case</span><strong>{caseStatus.replace("_", " ")}</strong></div>
+                  </div>
+                  <FactorBars factors={chatResult.risk_factors || []} />
+                </>
+              ) : (
+                <p className="muted">Conversation insights appear after the first message.</p>
+              )}
+            </div>
+          </aside>
+
+          <main className="chatgpt-main">
+            <div className="chatgpt-header">
+              <div>
+                <p className="eyebrow">Chat Triage</p>
+                <h2>Maternal Mental Health Assistant</h2>
+              </div>
+              <div className="row">
+                {chatResult ? (
+                  <span className={`chip ${chatResult.risk_percent >= 75 || chatResult.crisis_mode ? "chip-risk" : "chip-good"}`}>
+                    {chatResult.risk_percent}% {chatResult.risk_level}
+                  </span>
                 ) : null}
-                <p>Risk: <strong>{chatResult.risk_percent}%</strong> ({chatResult.risk_level})</p>
-                <p>Context: <strong>{chatResult.likely_context}</strong></p>
-                <div className="row">
-                  <span className="chip">{caseStatus.replace("_", " ")}</span>
-                  {chatResult.risk_percent >= 75 || chatResult.crisis_mode ? <span className="chip chip-risk">Urgent</span> : <span className="chip chip-good">Routine</span>}
-                </div>
-                <div className="action-grid">
-                  {chatResult.crisis_mode ? (
-                    <button onClick={() => handleEscalate("emergency_services_contacted")}>
-                      Escalate to Emergency
-                    </button>
-                  ) : null}
-                  <button onClick={() => handleEscalate("urgent_referral")}>Escalate to Specialist</button>
-                  <button className="secondary" onClick={() => handleEscalate("crisis_team_notified")}>Notify Crisis Team</button>
-                  <a className="btn-link" href="tel:988">Call 988</a>
-                </div>
-                {escalationStatus ? <p className="muted">{escalationStatus}</p> : null}
-                {chatResult.sources?.length ? (
-                  <div className="chip-wrap">
-                    {chatResult.sources.map((source) => (
-                      <button key={source} className="chip chip-source" onClick={() => openSource(source)}>{source}</button>
+                <button
+                  className="secondary"
+                  onClick={() => {
+                    setChatHistory([]);
+                    setChatItemState({});
+                    setChatResult(null);
+                    setChatLocked(false);
+                    setEscalationStatus("");
+                    setChatMessage("");
+                  }}
+                >
+                  New Chat
+                </button>
+              </div>
+            </div>
+
+            <div className="chatgpt-thread" aria-live="polite">
+              {!chatHistory.length ? (
+                <div className="chatgpt-empty">
+                  <h3>Start a patient conversation</h3>
+                  <div className="chatgpt-prompts">
+                    {[
+                      "I have not been sleeping and feel overwhelmed.",
+                      "I feel anxious most of the day and cannot stop crying.",
+                      "I feel exhausted and have lost interest in eating."
+                    ].map((suggestion) => (
+                      <button
+                        key={suggestion}
+                        type="button"
+                        className="prompt-chip"
+                        onClick={() => setChatMessage(suggestion)}
+                        disabled={chatLocked}
+                      >
+                        {suggestion}
+                      </button>
                     ))}
                   </div>
-                ) : null}
-              </div>
-            )}
-          </div>
-
-          <div className="card">
-            <h2>Chat Thread</h2>
-            {chatHistory.length ? (
-              <div className="chat-thread">
-                {chatHistory.map((item, index) => (
+                </div>
+              ) : (
+                chatHistory.map((item, index) => (
                   <ChatBubble
                     key={`${item.id || item.at}-${index}`}
                     item={item}
@@ -1124,27 +1517,63 @@ export default function App() {
                     onReview={setChatMessageReview}
                     onOpenSource={openSource}
                   />
-                ))}
-              </div>
-            ) : (
-              <p className="muted">No chat yet. Submit a message to start the thread.</p>
-            )}
-          </div>
+                ))
+              )}
+              {chatLoading ? (
+                <div className="bubble assistant typing">
+                  <p className="bubble-role">Assistant</p>
+                  <div className="typing-dots"><span /><span /><span /></div>
+                </div>
+              ) : null}
+              <div ref={chatEndRef} />
+            </div>
 
-          <div className="card">
-            <h2>Risk Visuals</h2>
-            {chatResult ? (
-              <>
-                <RiskMeter value={chatResult.risk_percent} />
-                <p className="muted">
-                  Context: <strong>{chatResult.likely_context}</strong> | Language: {chatResult.language}
-                </p>
-                <FactorBars factors={chatResult.risk_factors || []} />
-              </>
-            ) : (
-              <p className="muted">Run chat analysis to see visualizations.</p>
-            )}
-          </div>
+            {chatLocked ? (
+              <div className="crisis-banner">
+                Crisis mode active. Chat input locked. Use escalation actions immediately.
+              </div>
+            ) : null}
+
+            {chatResult?.crisis_mode || chatResult?.risk_percent >= 75 ? (
+              <div className="chatgpt-escalation-bar">
+                <button onClick={() => handleEscalate("urgent_referral")}>Escalate to Specialist</button>
+                <button className="secondary" onClick={() => handleEscalate("crisis_team_notified")}>Notify Crisis Team</button>
+                <a className="btn-link" href="tel:988">Call 988</a>
+                {escalationStatus ? <span className="muted">{escalationStatus}</span> : null}
+              </div>
+            ) : null}
+
+            <div className="chatgpt-composer">
+              <textarea
+                rows="3"
+                value={chatMessage}
+                onChange={(e) => setChatMessage(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleChatAssess();
+                  }
+                }}
+                placeholder="Message the triage assistant..."
+                disabled={chatLocked || chatLoading}
+              />
+              <div className="composer-actions">
+                <label className="upload-pill">
+                  Upload
+                  <input
+                    className="sr-only"
+                    type="file"
+                    accept=".txt,.md,.csv,.pdf"
+                    onChange={handleTranscriptUpload}
+                    disabled={chatLocked}
+                  />
+                </label>
+                <button onClick={handleChatAssess} disabled={chatLoading || chatLocked || !chatMessage.trim() || !clinicalActionsEnabled}>
+                  {chatLoading ? "Analyzing..." : "Send"}
+                </button>
+              </div>
+            </div>
+          </main>
         </section>
       ) : null}
 
@@ -1186,8 +1615,8 @@ export default function App() {
       ) : null}
 
       {activePage === "risk" ? (
-        <section className="grid">
-          <div className="card">
+        <section className="risk-dashboard-page">
+          <div className="card risk-input-card">
             <h2>Dynamic Risk Profiler</h2>
             <div className="form-grid">
               <label>
@@ -1195,6 +1624,7 @@ export default function App() {
                 <input
                   value={inputs.patient_id}
                   onChange={(e) => updateInput("patient_id", e.target.value)}
+                  onBlur={handlePatientBlur}
                   placeholder="patient-001"
                 />
               </label>
@@ -1251,7 +1681,8 @@ export default function App() {
                 <input
                   type="number"
                   value={inputs.age}
-                  onChange={(e) => updateInput("age", e.target.value)}
+                  readOnly
+                  title="Age is calculated from patient DOB"
                 />
               </label>
               <label>
@@ -1264,9 +1695,19 @@ export default function App() {
               </label>
             </div>
             <div className="row">
-              <button onClick={handleRisk}>Calculate Risk</button>
-              <button className="secondary" onClick={handleTimeline}>Load Timeline</button>
+              <button onClick={handleRisk} disabled={!clinicalActionsEnabled}>Calculate Risk</button>
+              <button className="secondary" onClick={handleConsent}>Grant Consent</button>
+              <button className="secondary" onClick={handleTimeline} disabled={!timelineActionsEnabled}>Load Timeline</button>
             </div>
+            {consentStatus ? <p className="muted">{consentStatus}</p> : null}
+            {patientStatus ? <p className={`muted ${patientStatusClass}`}>{patientStatus}</p> : null}
+            {timelineStatus ? <p className="muted">{timelineStatus}</p> : null}
+            {timelinePoints.length ? (
+              <div>
+                <h3>Timeline History</h3>
+                <TimelineTable points={timelinePoints} />
+              </div>
+            ) : null}
 
             {risk && typeof risk.risk_percent === "number" ? (
               <div className={`result ${risk.crisis_mode ? "alert" : ""}`}>
@@ -1279,26 +1720,43 @@ export default function App() {
             ) : null}
           </div>
 
-          <div className="card">
-            <h2>XAI Inspector</h2>
-            {xai?.contributions?.length ? (
-              <XAIBarChart data={xai.contributions} />
+          <div className="card risk-overview-card">
+            <h2>Risk Output Dashboard</h2>
+            <RiskOutputDashboard
+              risk={risk}
+              inputs={inputs}
+              timelinePoints={timelinePoints}
+            />
+          </div>
+
+          <div className="card risk-distribution-card">
+            <h2>Risk Distribution / Trend Graph</h2>
+            <RiskDistributionTrendGraph
+              timelinePoints={timelinePoints}
+              currentRisk={risk?.risk_percent}
+              gestationalWeeks={Number(inputs.gestational_weeks)}
+            />
+            <div className="risk-trend-panel">
+              <RiskTrend
+                timelinePoints={timelinePoints}
+                currentRisk={risk?.risk_percent}
+                gestationalWeeks={Number(inputs.gestational_weeks)}
+              />
+            </div>
+          </div>
+
+          <div className="card risk-explainability-card">
+            <h2>SHAP Explainability</h2>
+            {xai?.contributions?.length || risk?.crisis_mode ? (
+              <ShapExplanation
+                contributions={xai?.contributions || []}
+                riskPercent={risk?.risk_percent}
+                crisisMode={risk?.crisis_mode}
+              />
             ) : (
               <p className="muted">
                 {xaiStatus || "Run a risk score to see explainability breakdown."}
               </p>
-            )}
-          </div>
-
-          <div className="card">
-            <h2>Longitudinal Timeline</h2>
-            {timelinePoints.length ? (
-              <>
-                <TimelineChart points={timelinePoints} />
-                <TimelineTable points={timelinePoints} />
-              </>
-            ) : (
-              <p className="muted">No timeline points yet.</p>
             )}
           </div>
         </section>
@@ -1479,16 +1937,161 @@ function TimelineChart({ points }) {
 
 function TimelineTable({ points }) {
   const rows = [...points]
-    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-    .slice(-6);
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
   return (
     <div className="timeline-table">
       {rows.map((row, idx) => (
         <div className="timeline-row" key={`${row.timestamp}-${idx}`}>
-          <span>Week {row.gestational_weeks}</span>
+          <span>
+            Week {row.gestational_weeks}
+            <small>{formatTimelineDate(row.timestamp)}</small>
+          </span>
           <strong>{Number(row.risk_percent).toFixed(1)}%</strong>
         </div>
       ))}
+    </div>
+  );
+}
+
+function formatTimelineDate(timestamp) {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function RiskOutputDashboard({ risk, inputs, timelinePoints }) {
+  const currentRisk = typeof risk?.risk_percent === "number" ? Number(risk.risk_percent) : null;
+  const currentLevel = describeRiskLevel(currentRisk);
+  const currentWeek = Number(inputs.gestational_weeks || 0);
+  const priorPoints = [...(timelinePoints || [])]
+    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  const latestHistorical = priorPoints.length ? priorPoints[priorPoints.length - 1] : null;
+  const delta = currentRisk !== null && latestHistorical ? currentRisk - Number(latestHistorical.risk_percent) : null;
+  const trajectory = currentRisk === null || delta === null
+    ? "Awaiting longitudinal comparison"
+    : delta > 3
+      ? "Escalating"
+      : delta < -3
+        ? "Improving"
+        : "Stable";
+
+  return (
+    <div className="risk-output-dashboard">
+      <div className="risk-dashboard-stats">
+        <DashboardStat
+          label="Current risk"
+          value={currentRisk !== null ? `${currentRisk.toFixed(1)}%` : "Pending"}
+          tone={currentLevel.tone}
+        />
+        <DashboardStat
+          label="Risk band"
+          value={currentLevel.label}
+          tone={currentLevel.tone}
+        />
+        <DashboardStat
+          label="Gestational week"
+          value={currentWeek ? `Week ${currentWeek}` : "Not set"}
+          tone="neutral"
+        />
+        <DashboardStat
+          label="Trajectory"
+          value={trajectory}
+          detail={delta !== null ? `${delta > 0 ? "+" : ""}${delta.toFixed(1)} pts vs prior` : "Load or create timeline data"}
+          tone={trajectory === "Escalating" ? "high" : trajectory === "Improving" ? "low" : "neutral"}
+        />
+      </div>
+
+      <div className="risk-dashboard-meter">
+        <div className="risk-meter-heading">
+          <span className="chip">Risk severity</span>
+          <span className={`chip ${currentLevel.chipClass}`}>{currentLevel.label}</span>
+        </div>
+        <RiskMeter value={currentRisk ?? 0} />
+        <p className="muted">
+          {risk?.message || "Run the risk calculation to populate the dashboard and narrative output."}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function DashboardStat({ label, value, detail, tone = "neutral" }) {
+  return (
+    <div className={`dashboard-stat ${tone}`}>
+      <span className="dashboard-stat-label">{label}</span>
+      <strong className="dashboard-stat-value">{value}</strong>
+      {detail ? <span className="dashboard-stat-detail">{detail}</span> : null}
+    </div>
+  );
+}
+
+function RiskDistributionTrendGraph({ timelinePoints = [], currentRisk = null, gestationalWeeks = null }) {
+  const combined = [...timelinePoints];
+  if (typeof currentRisk === "number" && gestationalWeeks !== null && !Number.isNaN(gestationalWeeks)) {
+    combined.push({
+      gestational_weeks: gestationalWeeks,
+      risk_percent: currentRisk,
+      timestamp: new Date().toISOString(),
+      isCurrent: true
+    });
+  }
+
+  if (!combined.length) {
+    return <p className="muted">Run a risk score and load timeline data to populate the distribution graph.</p>;
+  }
+
+  const buckets = [
+    { label: "Low", min: 0, max: 40, tone: "low" },
+    { label: "Moderate", min: 40, max: 70, tone: "moderate" },
+    { label: "High", min: 70, max: 101, tone: "high" }
+  ].map((bucket) => ({
+    ...bucket,
+    count: combined.filter((point) => point.risk_percent >= bucket.min && point.risk_percent < bucket.max).length
+  }));
+
+  const maxCount = Math.max(...buckets.map((bucket) => bucket.count), 1);
+  const sortedTimeline = [...combined]
+    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+    .slice(-6);
+
+  return (
+    <div className="risk-distribution-graph">
+      <div className="distribution-bars">
+        {buckets.map((bucket) => (
+          <div key={bucket.label} className="distribution-bar-group">
+            <div className="distribution-bar-track">
+              <div
+                className={`distribution-bar-fill ${bucket.tone}`}
+                style={{ height: `${(bucket.count / maxCount) * 100}%` }}
+              />
+            </div>
+            <strong>{bucket.count}</strong>
+            <span>{bucket.label}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="distribution-summary">
+        <p className="muted">
+          Distribution across {combined.length} recorded risk event{combined.length === 1 ? "" : "s"}.
+        </p>
+        <div className="timeline-mini-table">
+          {sortedTimeline.map((point, index) => (
+            <div
+              key={`${point.timestamp}-${index}`}
+              className={`timeline-mini-row ${point.isCurrent ? "current" : ""}`}
+            >
+              <span>Week {point.gestational_weeks}</span>
+              <strong>{Number(point.risk_percent).toFixed(1)}%</strong>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1513,7 +2116,6 @@ function ChatBubble({ item, itemState, onToggleCarePlan, onReview, onOpenSource 
   const isUser = item.role === "user";
   const isSystem = item.role === "system";
   const isAssistant = item.role === "assistant";
-  const review = itemState?.review || "";
 
   if (isSystem) {
     return (
@@ -1526,7 +2128,7 @@ function ChatBubble({ item, itemState, onToggleCarePlan, onReview, onOpenSource 
 
   return (
     <div className={isUser ? "bubble user" : "bubble assistant"}>
-      <p className="bubble-role">{isUser ? "Client" : "AI Assistant"}</p>
+      <p className="bubble-role">{isUser ? "Client" : "Assistant"}</p>
       <p className="bubble-text">
         {isUser ? highlightEvidence(item.text, item.highlightFactors || []) : item.text}
       </p>
@@ -1549,18 +2151,6 @@ function ChatBubble({ item, itemState, onToggleCarePlan, onReview, onOpenSource 
       ) : null}
       {isAssistant ? (
         <div className="row">
-          <button
-            className={review === "agree" ? "" : "secondary"}
-            onClick={() => onReview(item.id, "agree")}
-          >
-            Agree
-          </button>
-          <button
-            className={review === "correct" ? "" : "secondary"}
-            onClick={() => onReview(item.id, "correct")}
-          >
-            Correct
-          </button>
           {item.meta?.sources?.map((source) => (
             <button
               key={`${item.id}-${source}`}
@@ -1594,6 +2184,20 @@ function RiskMeter({ value }) {
       <p className="muted">Estimated risk: {safeValue.toFixed(1)}%</p>
     </div>
   );
+}
+
+function describeRiskLevel(value) {
+  const safeValue = typeof value === "number" ? Math.max(0, Math.min(100, value)) : null;
+  if (safeValue === null) {
+    return { label: "Pending", tone: "neutral", chipClass: "chip-source" };
+  }
+  if (safeValue > 70) {
+    return { label: "High risk", tone: "high", chipClass: "chip-risk" };
+  }
+  if (safeValue > 40) {
+    return { label: "Moderate risk", tone: "moderate", chipClass: "" };
+  }
+  return { label: "Low risk", tone: "low", chipClass: "chip-good" };
 }
 
 function FactorBars({ factors }) {

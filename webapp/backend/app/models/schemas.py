@@ -177,3 +177,29 @@ class EHRPatientSummary(BaseModel):
     latest_epds: Optional[int] = None
     recent_visits: int = 0
     known_conditions: List[str] = []
+
+
+# New: Single source of truth for patient profile
+class PatientProfile(BaseModel):
+    patient_id: str
+    name: str
+    dob: str
+    mrn: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class PatientUpsertRequest(BaseModel):
+    patient_id: str
+    name: str
+    dob: str
+    mrn: str
+
+
+class PatientLookupResponse(BaseModel):
+    exists: bool
+    data: Optional[PatientProfile] = None
+
+
+class PatientSaveResponse(BaseModel):
+    message: str
+    data: PatientProfile
